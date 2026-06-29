@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda functions for automated jobs
+
+Resources:
+  ReminderLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2010-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaLogs
+          PolicyDocument:
+            Version: '2010-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  ReminderLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SHMS-Appointment-Reminder
+      Handler: index.handler
+      Role: !GetAtt ReminderLambdaRole.Arn
+      Runtime: nodejs18.x
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log("Checking for upcoming appointments...");
+            // Logic to query RDS and send reminders via SES/SNS
+            return { statusCode: 200, body: "Reminders sent" };
+          };
+
+  ReminderLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ReminderLambda}
+      RetentionInDays: 30
+
+  ReminderSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Run reminder lambda daily
+      ScheduleExpression: cron(0 8 * * ? *) # 8 AM Daily
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ReminderLambda.Arn
+          Id: TargetFunctionV1
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ReminderLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReminderSchedule.Arn
+
+  ReminderLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reminder lambda invocation errors detected
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ReminderLambda
+
+  ReminderLambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reminder lambda duration approaching timeout
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ReminderLambda

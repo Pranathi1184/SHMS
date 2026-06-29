@@ -1,0 +1,1 @@
+id,prescription_id,medicine_id,dosage,frequency,duration,quantity,instructions,created_at,updated_at,deleted_at

@@ -1,0 +1,45 @@
+:root {
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --hospital-blue: #0ea5e9;
+  --hospital-teal: #14b8a6;
+  --hospital-ink: #0b1324;
+  --surface: #f8fafc;
+  --surface-2: #eef2ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--hospital-ink);
+  background: radial-gradient(1200px 600px at 20% 10%, rgba(14, 165, 233, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 90% 20%, rgba(20, 184, 166, 0.16), transparent 55%),
+    linear-gradient(180deg, var(--surface), var(--surface-2));
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.MuiPaper-root {
+  border-radius: 14px;
+}
+
+.MuiCard-root {
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.MuiTableHead-root .MuiTableCell-root {
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+  font-weight: 700;
+}
+
+.MuiButton-containedPrimary,
+.MuiButton-contained {
+  box-shadow: 0 8px 14px rgba(102, 126, 234, 0.25);
+}

@@ -1,0 +1,1 @@
+id,patient_id,bill_number,bill_date,total_amount,discount,tax_amount,net_amount,payment_mode,payment_status,insurance_id,notes,created_by,created_at,updated_at,deleted_at

@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: shms_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-shms}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../devops/docker/backend/Dockerfile
+    container_name: shms_backend
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}
+    depends_on:
+      - db
+
+  airflow-init:
+    image: apache/airflow:2.9.3
+    container_name: shms_airflow_init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${DB_URL:-postgresql://postgres:postgres@db:5432/shms}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
+      AIRFLOW_UID: 50000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-shms}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      ETL_SOURCE_DB_URL: ${ETL_SOURCE_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
+      ETL_TARGET_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
+      ETL_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
+      ETL_RAW_DIR: /opt/airflow/etl/data/raw
+      ETL_PROCESSED_DIR: /opt/airflow/etl/data/processed
+      ETL_STATE_FILE: /opt/airflow/etl/state/etl_state.json
+      ETL_SCHEMA_FILE: /opt/airflow/etl/schema.sql
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --username admin --password admin --firstname SHMS --lastname Admin --role Admin --email admin@shms.local || true
+    volumes:
+      - ./etl/dags:/opt/airflow/dags
+      - ./etl/scripts:/opt/airflow/scripts
+      - ./etl:/opt/airflow/etl
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - db
+
+  airflow:
+    image: apache/airflow:2.9.3
+    container_name: shms_airflow
+    restart: always
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql://postgres:Pranathi%40110804@db:5432/shms
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
+      AIRFLOW_UID: 50000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-shms}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      ETL_SOURCE_DB_URL: postgresql://postgres:Pranathi%40110804@db:5432/shms
+      ETL_TARGET_DB_URL: postgresql://postgres:Pranathi%40110804@db:5432/shms
+      ETL_DB_URL: postgresql://postgres:Pranathi%40110804@db:5432/shms
+      ETL_RAW_DIR: /opt/airflow/etl/data/raw
+      ETL_PROCESSED_DIR: /opt/airflow/etl/data/processed
+      ETL_STATE_FILE: /opt/airflow/etl/state/etl_state.json
+      ETL_SCHEMA_FILE: /opt/airflow/etl/schema.sql
+    command: airflow webserver
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./etl/dags:/opt/airflow/dags
+      - ./etl/scripts:/opt/airflow/scripts
+      - ./etl:/opt/airflow/etl
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - airflow-init
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../devops/docker/frontend/Dockerfile
+    container_name: shms_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

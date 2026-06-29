@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS PostgreSQL Database for SHMS
+
+Parameters:
+  VpcId:
+    Type: String
+  Subnet1Id:
+    Type: String
+  Subnet2Id:
+    Type: String
+  DBUser:
+    Type: String
+    Default: shms_admin
+  DBPassword:
+    Type: String
+    NoEcho: true
+  AlarmSNSTopicArn:
+    Type: String
+    Default: ''
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for SHMS RDS
+      SubnetIds:
+        - !Ref Subnet1Id
+        - !Ref Subnet2Id
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/16 # Allow from within VPC
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: '20'
+      DBInstanceClass: db.t3.micro
+      Engine: postgres
+      EngineVersion: '15'
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      MultiAZ: false
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: SHMS-Database
+
+  RdsCpuHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: RDS CPU utilization is high
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref RDSInstance
+      AlarmActions: !If
+        - HasAlarmTopic
+        - [!Ref AlarmSNSTopicArn]
+        - []
+
+  RdsFreeStorageLowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: RDS free storage below 2GB
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 2147483648
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref RDSInstance
+      AlarmActions: !If
+        - HasAlarmTopic
+        - [!Ref AlarmSNSTopicArn]
+        - []
+
+Conditions:
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmSNSTopicArn, '']]
+
+Outputs:
+  DBEndpoint:
+    Value: !GetAtt RDSInstance.Endpoint.Address

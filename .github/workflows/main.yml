@@ -1,0 +1,200 @@
+name: SHMS CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shms_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: shms_test
+      TEST_DB_NAME: shms_test
+      NODE_ENV: test
+      JWT_SECRET: test-secret
+      JWT_EXPIRE: 1d
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+          
+      - name: Install Backend Dependencies
+        run: cd backend && npm ci
+
+      - name: Prepare Backend Test Data
+        run: |
+          cd backend
+          node scripts/ensure-db.js
+          node run-seed.js
+        
+      - name: Run Backend Tests
+        run: cd backend && npx jest --runInBand
+        
+      - name: Install Frontend Dependencies
+        run: cd frontend && npm ci
+        
+      - name: Run Frontend Tests
+        run: cd frontend && npm test -- --watchAll=false
+
+      - name: Run Frontend Build
+        run: cd frontend && npm run build
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    outputs:
+      backend_tag: ${{ steps.meta.outputs.backend_tag }}
+      frontend_tag: ${{ steps.meta.outputs.frontend_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tags
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            ENV_TAG="prod"
+          else
+            ENV_TAG="dev"
+          fi
+          echo "backend_tag=${{ secrets.DOCKERHUB_USERNAME }}/shms-backend:${ENV_TAG}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "frontend_tag=${{ secrets.DOCKERHUB_USERNAME }}/shms-frontend:${ENV_TAG}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          
+      - name: Build and Push Backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./devops/docker/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.backend_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/shms-backend:latest
+          
+      - name: Build and Push Frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./devops/docker/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.frontend_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/shms-frontend:latest
+
+  deploy-dev:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: development
+    concurrency:
+      group: shms-deploy-dev
+      cancel-in-progress: false
+    steps:
+      - name: Validate required secrets
+        run: |
+          test -n "${{ secrets.EC2_HOST_DEV }}"
+          test -n "${{ secrets.EC2_USER_DEV }}"
+          test -n "${{ secrets.EC2_SSH_KEY_DEV }}"
+
+      - name: Deploy to EC2 (Development)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_DEV }}
+          username: ${{ secrets.EC2_USER_DEV }}
+          key: ${{ secrets.EC2_SSH_KEY_DEV }}
+          script: |
+            set -e
+            cd ~/shms
+            git fetch --all
+            git checkout develop
+            git pull origin develop
+            docker compose up -d --build
+
+      - name: Health Check (Development)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_DEV }}
+          username: ${{ secrets.EC2_USER_DEV }}
+          key: ${{ secrets.EC2_SSH_KEY_DEV }}
+          script: |
+            set -e
+            curl -f http://localhost:5000/health
+            curl -f http://localhost/
+
+  deploy-prod:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    concurrency:
+      group: shms-deploy-prod
+      cancel-in-progress: false
+    steps:
+      - name: Validate required secrets
+        run: |
+          test -n "${{ secrets.EC2_HOST_PROD }}"
+          test -n "${{ secrets.EC2_USER_PROD }}"
+          test -n "${{ secrets.EC2_SSH_KEY_PROD }}"
+
+      - name: Deploy to EC2 (Production)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_PROD }}
+          username: ${{ secrets.EC2_USER_PROD }}
+          key: ${{ secrets.EC2_SSH_KEY_PROD }}
+          script: |
+            set -e
+            cd ~/shms
+            git fetch --all
+            git checkout main
+            git pull origin main
+            docker compose up -d --build
+            
+      - name: Health Check (Production)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST_PROD }}
+          username: ${{ secrets.EC2_USER_PROD }}
+          key: ${{ secrets.EC2_SSH_KEY_PROD }}
+          script: |
+            set -e
+            curl -f http://localhost:5000/health
+            curl -f http://localhost/

@@ -1,0 +1,1 @@
+id,patient_id,doctor_id,appointment_date,start_time,end_time,status,notes,created_by,created_at,updated_at,deleted_at

@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 Backend Instance for SHMS
+
+Parameters:
+  VpcId:
+    Type: String
+  SubnetId:
+    Type: String
+  AMIId:
+    Type: String
+    Default: ami-0c55b159cbfafe1f0 # Amazon Linux 2023 (example)
+  AlarmSNSTopicArn:
+    Type: String
+    Default: ''
+  CpuAlarmThreshold:
+    Type: Number
+    Default: 80
+
+Resources:
+  BackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and SSH
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0 # Restricted in production
+
+  BackendInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref AMIId
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref BackendSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          # Setup docker-compose or pull images here
+      Tags:
+        - Key: Name
+          Value: SHMS-Backend
+
+  BackendAppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /shms/backend/app
+      RetentionInDays: 30
+
+  BackendCpuHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Backend EC2 CPU above threshold for sustained period
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: !Ref CpuAlarmThreshold
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref BackendInstance
+      AlarmActions: !If
+        - HasAlarmTopic
+        - [!Ref AlarmSNSTopicArn]
+        - []
+
+  BackendStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Backend EC2 instance status check failed
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref BackendInstance
+      AlarmActions: !If
+        - HasAlarmTopic
+        - [!Ref AlarmSNSTopicArn]
+        - []
+
+Conditions:
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmSNSTopicArn, '']]
+
+Outputs:
+  PublicIp:
+    Value: !GetAtt BackendInstance.PublicIp
