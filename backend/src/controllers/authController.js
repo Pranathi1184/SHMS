@@ -29,6 +29,12 @@ const resolveRequesterFromHeader = async (req) => {
   }
 };
 
+const safeRollback = async (transaction) => {
+  if (!transaction) return;
+  if (transaction.finished) return;
+  await transaction.rollback();
+};
+
 const register = async (req, res) => {
   let transaction = null;
   try {
@@ -41,7 +47,7 @@ const register = async (req, res) => {
     const normalizedRole = normalizeRole(role);
 
     if (normalizedRole !== 'Patient' && requester?.role !== 'Administrator') {
-      if (transaction) await transaction.rollback();
+      await safeRollback(transaction);
       return res.status(403).json({
         status: 'error',
         message: 'Only administrators can create non-patient accounts',
@@ -50,7 +56,7 @@ const register = async (req, res) => {
 
     const existingUser = await db.User.findOne({ where: { email } });
     if (existingUser) {
-      if (transaction) await transaction.rollback();
+      await safeRollback(transaction);
       return res
         .status(400)
         .json({ status: 'error', message: 'Email already exists' });
@@ -70,7 +76,7 @@ const register = async (req, res) => {
     if (normalizedRole === 'Patient') {
       const existingPatient = await db.Patient.findOne({ where: { email }, transaction });
       if (existingPatient) {
-        if (transaction) await transaction.rollback();
+        await safeRollback(transaction);
         return res.status(400).json({ status: 'error', message: 'Patient with this email already exists' });
       }
 
@@ -110,7 +116,7 @@ const register = async (req, res) => {
       },
     });
   } catch (error) {
-    if (transaction) await transaction.rollback();
+    await safeRollback(transaction);
     logger.error('Registration error:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
