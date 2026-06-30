@@ -1,22 +1,52 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: RDS PostgreSQL Database for SHMS
+Description: SHMS PostgreSQL on RDS (free-tier ready) with CloudWatch alarms
 
 Parameters:
   VpcId:
     Type: String
-  Subnet1Id:
+  VpcCidr:
     Type: String
-  Subnet2Id:
+    Default: 10.20.0.0/16
+  PrivateSubnet1Id:
     Type: String
+  PrivateSubnet2Id:
+    Type: String
+  BackendSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: Optional backend EC2 security group ID
+  DBName:
+    Type: String
+    Default: shms
+  DBInstanceIdentifier:
+    Type: String
+    Default: shms-db
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t4g.micro
+  AllocatedStorage:
+    Type: Number
+    Default: 20
   DBUser:
     Type: String
     Default: shms_admin
   DBPassword:
     Type: String
     NoEcho: true
+  PubliclyAccessible:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
   AlarmSNSTopicArn:
     Type: String
     Default: ''
+
+Conditions:
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmSNSTopicArn, '']]
+  HasBackendSecurityGroup: !Not [!Equals [!Ref BackendSecurityGroupId, '']]
 
 Resources:
   DBSubnetGroup:
@@ -24,8 +54,8 @@ Resources:
     Properties:
       DBSubnetGroupDescription: Subnets for SHMS RDS
       SubnetIds:
-        - !Ref Subnet1Id
-        - !Ref Subnet2Id
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
 
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -36,13 +66,19 @@ Resources:
         - IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
-          CidrIp: 10.0.0.0/16 # Allow from within VPC
+          SourceSecurityGroupId: !If [HasBackendSecurityGroup, !Ref BackendSecurityGroupId, !Ref AWS::NoValue]
+          CidrIp: !If [HasBackendSecurityGroup, !Ref AWS::NoValue, !Ref VpcCidr]
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
 
   RDSInstance:
     Type: AWS::RDS::DBInstance
     Properties:
-      AllocatedStorage: '20'
-      DBInstanceClass: db.t3.micro
+      DBName: !Ref DBName
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      AllocatedStorage: !Ref AllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
       Engine: postgres
       EngineVersion: '15'
       MasterUsername: !Ref DBUser
@@ -50,8 +86,14 @@ Resources:
       DBSubnetGroupName: !Ref DBSubnetGroup
       VPCSecurityGroups:
         - !Ref DBSecurityGroup
+      StorageType: gp2
+      StorageEncrypted: true
       MultiAZ: false
-      PubliclyAccessible: false
+      PubliclyAccessible: !Ref PubliclyAccessible
+      BackupRetentionPeriod: 7
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+      EnablePerformanceInsights: false
       Tags:
         - Key: Name
           Value: SHMS-Database
@@ -94,9 +136,12 @@ Resources:
         - [!Ref AlarmSNSTopicArn]
         - []
 
-Conditions:
-  HasAlarmTopic: !Not [!Equals [!Ref AlarmSNSTopicArn, '']]
-
 Outputs:
+  DBInstanceIdentifier:
+    Value: !Ref RDSInstance
+  DBSecurityGroupId:
+    Value: !Ref DBSecurityGroup
   DBEndpoint:
     Value: !GetAtt RDSInstance.Endpoint.Address
+  DBPort:
+    Value: !GetAtt RDSInstance.Endpoint.Port

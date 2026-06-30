@@ -2,6 +2,16 @@ name: SHMS CI/CD Pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: Select optional deployment target for manual runs
+        required: false
+        type: choice
+        default: none
+        options:
+          - none
+          - development
+          - production
   push:
     branches: [ main, develop ]
   pull_request:
@@ -122,7 +132,9 @@ jobs:
   deploy-dev:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop' && secrets.EC2_HOST_DEV != '' && secrets.EC2_USER_DEV != '' && secrets.EC2_SSH_KEY_DEV != '') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'development' && secrets.EC2_HOST_DEV != '' && secrets.EC2_USER_DEV != '' && secrets.EC2_SSH_KEY_DEV != '')
     environment: development
     concurrency:
       group: shms-deploy-dev
@@ -162,7 +174,9 @@ jobs:
   deploy-prod:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.EC2_HOST_PROD != '' && secrets.EC2_USER_PROD != '' && secrets.EC2_SSH_KEY_PROD != '') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'production' && secrets.EC2_HOST_PROD != '' && secrets.EC2_USER_PROD != '' && secrets.EC2_SSH_KEY_PROD != '')
     environment: production
     concurrency:
       group: shms-deploy-prod

@@ -1,8 +1,31 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Lambda functions for automated jobs
+Description: Optional SHMS Lambda for scheduled appointment reminder trigger
+
+Parameters:
+  EnableReminderLambda:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  ReminderScheduleExpression:
+    Type: String
+    Default: cron(0 8 * * ? *)
+    Description: EventBridge schedule for reminder trigger
+  ReminderApiUrl:
+    Type: String
+    Default: ''
+    Description: Backend endpoint that executes reminder logic
+  ReminderApiToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional bearer token sent as Authorization header
+
+Conditions:
+  CreateReminderLambda: !Equals [!Ref EnableReminderLambda, 'true']
 
 Resources:
   ReminderLambdaRole:
+    Condition: CreateReminderLambda
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -25,37 +48,67 @@ Resources:
                 Resource: arn:aws:logs:*:*:*
 
   ReminderLambda:
+    Condition: CreateReminderLambda
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: SHMS-Appointment-Reminder
       Handler: index.handler
       Role: !GetAtt ReminderLambdaRole.Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs20.x
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          REMINDER_API_URL: !Ref ReminderApiUrl
+          REMINDER_API_TOKEN: !Ref ReminderApiToken
       Code:
         ZipFile: |
-          exports.handler = async (event) => {
-            console.log("Checking for upcoming appointments...");
-            // Logic to query RDS and send reminders via SES/SNS
-            return { statusCode: 200, body: "Reminders sent" };
+          exports.handler = async () => {
+            if (!process.env.REMINDER_API_URL) {
+              console.log('Reminder API URL is not configured; skipping invocation.');
+              return { statusCode: 200, body: 'Reminder API URL not configured' };
+            }
+
+            const headers = { 'Content-Type': 'application/json' };
+            if (process.env.REMINDER_API_TOKEN) {
+              headers.Authorization = 'Bearer ' + process.env.REMINDER_API_TOKEN;
+            }
+
+            const response = await fetch(process.env.REMINDER_API_URL, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ source: 'eventbridge-lambda' })
+            });
+
+            const body = await response.text();
+            if (!response.ok) {
+              throw new Error('Reminder trigger failed: ' + response.status + ' ' + body);
+            }
+
+            console.log('Reminder trigger succeeded', body);
+            return { statusCode: 200, body };
           };
 
   ReminderLambdaLogGroup:
+    Condition: CreateReminderLambda
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${ReminderLambda}
       RetentionInDays: 30
 
   ReminderSchedule:
+    Condition: CreateReminderLambda
     Type: AWS::Events::Rule
     Properties:
       Description: Run reminder lambda daily
-      ScheduleExpression: cron(0 8 * * ? *) # 8 AM Daily
+      ScheduleExpression: !Ref ReminderScheduleExpression
       State: ENABLED
       Targets:
         - Arn: !GetAtt ReminderLambda.Arn
           Id: TargetFunctionV1
 
   PermissionForEventsToInvokeLambda:
+    Condition: CreateReminderLambda
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref ReminderLambda
@@ -64,6 +117,7 @@ Resources:
       SourceArn: !GetAtt ReminderSchedule.Arn
 
   ReminderLambdaErrorAlarm:
+    Condition: CreateReminderLambda
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmDescription: Reminder lambda invocation errors detected
@@ -79,6 +133,7 @@ Resources:
           Value: !Ref ReminderLambda
 
   ReminderLambdaDurationAlarm:
+    Condition: CreateReminderLambda
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmDescription: Reminder lambda duration approaching timeout
@@ -92,3 +147,9 @@ Resources:
       Dimensions:
         - Name: FunctionName
           Value: !Ref ReminderLambda
+
+Outputs:
+  ReminderLambdaArn:
+    Condition: CreateReminderLambda
+    Value: !GetAtt ReminderLambda.Arn
+     

@@ -1,14 +1,55 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: EC2 Backend Instance for SHMS
+Description: SHMS backend on EC2 (Docker Compose) with IAM role and CloudWatch alarms
 
 Parameters:
   VpcId:
     Type: String
   SubnetId:
     Type: String
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 key pair name for SSH access
   AMIId:
     Type: String
-    Default: ami-0c55b159cbfafe1f0 # Amazon Linux 2023 (example)
+    Default: ami-0a0e5d9c7acc336f1
+    Description: Amazon Linux 2023 AMI ID (replace per region)
+  AllowedSshCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Restrict SSH access to your IP in production
+  BackendInstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t3.small
+  BackendPort:
+    Type: Number
+    Default: 5000
+  FrontendPort:
+    Type: Number
+    Default: 80
+  DockerHubUsername:
+    Type: String
+    Description: Docker Hub org or user where SHMS images are published
+  BackendImageTag:
+    Type: String
+    Default: latest
+  FrontendImageTag:
+    Type: String
+    Default: latest
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: Full PostgreSQL URL to RDS (e.g. postgresql://user:pass@host:5432/shms)
+  AwsRegion:
+    Type: String
+    Default: us-east-1
+  DocumentsBucketName:
+    Type: String
+    Default: ''
+    Description: Optional S3 bucket for patient documents
   AlarmSNSTopicArn:
     Type: String
     Default: ''
@@ -16,38 +57,139 @@ Parameters:
     Type: Number
     Default: 80
 
+Conditions:
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmSNSTopicArn, '']]
+  HasDocumentsBucket: !Not [!Equals [!Ref DocumentsBucketName, '']]
+
 Resources:
   BackendSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP and SSH
+      GroupDescription: Allow SHMS frontend, API, and SSH access
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
+          FromPort: !Ref FrontendPort
+          ToPort: !Ref FrontendPort
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: !Ref BackendPort
+          ToPort: !Ref BackendPort
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0 # Restricted in production
+          CidrIp: !Ref AllowedSshCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  BackendInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+
+  BackendS3AccessPolicy:
+    Condition: HasDocumentsBucket
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SHMS-Backend-S3-Access
+      Roles:
+        - !Ref BackendInstanceRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - !Sub arn:aws:s3:::${DocumentsBucketName}
+              - !Sub arn:aws:s3:::${DocumentsBucketName}/*
+
+  BackendInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref BackendInstanceRole
 
   BackendInstance:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: t3.small
+      InstanceType: !Ref BackendInstanceType
       ImageId: !Ref AMIId
       SubnetId: !Ref SubnetId
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref BackendInstanceProfile
       SecurityGroupIds:
         - !Ref BackendSecurityGroup
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          yum update -y
-          yum install -y docker
+          set -euxo pipefail
+          dnf update -y
+          dnf install -y docker git
           systemctl start docker
           systemctl enable docker
-          # Setup docker-compose or pull images here
+
+          mkdir -p /opt/shms
+          cat >/opt/shms/docker-compose.yml <<'EOF'
+          services:
+            backend:
+              image: ${DockerHubUsername}/shms-backend:${BackendImageTag}
+              container_name: shms_backend
+              restart: always
+              environment:
+                NODE_ENV: production
+                DATABASE_URL: ${DatabaseUrl}
+                AWS_REGION: ${AwsRegion}
+                AWS_S3_BUCKET: ${DocumentsBucketName}
+              ports:
+                - "${BackendPort}:5000"
+
+            frontend:
+              image: ${DockerHubUsername}/shms-frontend:${FrontendImageTag}
+              container_name: shms_frontend
+              restart: always
+              ports:
+                - "${FrontendPort}:80"
+              depends_on:
+                - backend
+          EOF
+
+          docker pull ${DockerHubUsername}/shms-backend:${BackendImageTag}
+          docker pull ${DockerHubUsername}/shms-frontend:${FrontendImageTag}
+          docker compose -f /opt/shms/docker-compose.yml up -d
+
+          cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'EOF'
+          {
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/var/log/cloud-init-output.log",
+                      "log_group_name": "/shms/ec2/cloud-init",
+                      "log_stream_name": "{instance_id}"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+          EOF
+
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s || true
       Tags:
         - Key: Name
           Value: SHMS-Backend
@@ -57,6 +199,12 @@ Resources:
     Properties:
       LogGroupName: /shms/backend/app
       RetentionInDays: 30
+
+  BackendBootstrapLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /shms/ec2/cloud-init
+      RetentionInDays: 14
 
   BackendCpuHighAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -96,9 +244,12 @@ Resources:
         - [!Ref AlarmSNSTopicArn]
         - []
 
-Conditions:
-  HasAlarmTopic: !Not [!Equals [!Ref AlarmSNSTopicArn, '']]
-
 Outputs:
+  BackendInstanceId:
+    Value: !Ref BackendInstance
   PublicIp:
     Value: !GetAtt BackendInstance.PublicIp
+  PublicDns:
+    Value: !GetAtt BackendInstance.PublicDnsName
+  BackendSecurityGroupId:
+    Value: !Ref BackendSecurityGroup

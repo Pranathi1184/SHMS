@@ -1,46 +1,148 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: S3 and CloudFront for SHMS Frontend
+Description: SHMS frontend hosting (S3 + CloudFront) and patient document bucket
+
+Parameters:
+  FrontendBucketName:
+    Type: String
+    Default: ''
+    Description: Leave empty to auto-generate bucket name
+  DocumentsBucketName:
+    Type: String
+    Default: ''
+    Description: Leave empty to auto-generate patient document bucket name
+
+Conditions:
+  UseProvidedFrontendBucketName: !Not [!Equals [!Ref FrontendBucketName, '']]
+  UseProvidedDocumentsBucketName: !Not [!Equals [!Ref DocumentsBucketName, '']]
 
 Resources:
   FrontendBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub shms-frontend-${AWS::AccountId}
-      WebsiteConfiguration:
-        IndexDocument: index.html
-        ErrorDocument: index.html
+      BucketName: !If
+        - UseProvidedFrontendBucketName
+        - !Ref FrontendBucketName
+        - !Sub shms-frontend-${AWS::AccountId}-${AWS::Region}
       PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        BlockPublicPolicy: false
-        IgnorePublicAcls: false
-        RestrictPublicBuckets: false
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
 
-  ReportsBucket:
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: SHMS-Frontend-OAC
+        Description: OAC for SHMS frontend bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  PatientDocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub shms-reports-${AWS::AccountId}
+      BucketName: !If
+        - UseProvidedDocumentsBucketName
+        - !Ref DocumentsBucketName
+        - !Sub shms-patient-documents-${AWS::AccountId}-${AWS::Region}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchiveOldDocuments
+            Status: Enabled
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+          - Id: AbortIncompleteMultipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
 
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
+        Comment: SHMS React frontend distribution
         Origins:
           - DomainName: !GetAtt FrontendBucket.RegionalDomainName
             Id: FrontendS3Origin
-            S3OriginConfig:
-              OriginAccessIdentity: ''
+            S3OriginConfig: {}
+            OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
         Enabled: true
         DefaultRootObject: index.html
+        PriceClass: PriceClass_100
         DefaultCacheBehavior:
           TargetOriginId: FrontendS3Origin
           ViewerProtocolPolicy: redirect-to-https
-          ForwardedValues:
-            QueryString: false
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
 
+  Frontend4xxErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: High CloudFront 4xx error rate
+      Namespace: AWS/CloudFront
+      MetricName: 4xxErrorRate
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: DistributionId
+          Value: !Ref CloudFrontDistribution
+        - Name: Region
+          Value: Global
+
 Outputs:
-  FrontendUrl:
+  FrontendDistributionId:
+    Value: !Ref CloudFrontDistribution
+  FrontendDistributionDomainName:
     Value: !GetAtt CloudFrontDistribution.DomainName
-  ReportsBucketName:
-    Value: !Ref ReportsBucket
+  FrontendBucketNameOutput:
+    Value: !Ref FrontendBucket
+  PatientDocumentsBucketNameOutput:
+    Value: !Ref PatientDocumentsBucket
