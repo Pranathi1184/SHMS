@@ -261,3 +261,6 @@ User: "what are my prescriptions?"
 ## Documentation
 - Setup/onboarding: [docs/SETUP_AND_ONBOARDING.md](docs/SETUP_AND_ONBOARDING.md)
 - Database content and backup/restore: [docs/DATABASE_CONTENT_GUIDE.md](docs/DATABASE_CONTENT_GUIDE.md)
+- AWS free-tier deployment guide: [docs/AWS_FREE_TIER_DEPLOYMENT.md](docs/AWS_FREE_TIER_DEPLOYMENT.md)
+- AWS readiness audit and ordered setup checklist: [docs/AWS_DEPLOYMENT_READINESS_AUDIT.md](docs/AWS_DEPLOYMENT_READINESS_AUDIT.md)
+- Demo presentation runbook: [docs/DEMO_PRESENTATION_RUNBOOK.md](docs/DEMO_PRESENTATION_RUNBOOK.md)
