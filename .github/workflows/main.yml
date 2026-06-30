@@ -81,7 +81,9 @@ jobs:
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) ||
+      github.event_name == 'workflow_dispatch'
     outputs:
       backend_tag: ${{ steps.meta.outputs.backend_tag }}
       frontend_tag: ${{ steps.meta.outputs.frontend_tag }}
@@ -133,20 +135,34 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/develop' && secrets.EC2_HOST_DEV != '' && secrets.EC2_USER_DEV != '' && secrets.EC2_SSH_KEY_DEV != '') ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'development' && secrets.EC2_HOST_DEV != '' && secrets.EC2_USER_DEV != '' && secrets.EC2_SSH_KEY_DEV != '')
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'development')
     environment: development
     concurrency:
       group: shms-deploy-dev
       cancel-in-progress: false
     steps:
       - name: Validate required secrets
+        id: validate_secrets
+        env:
+          EC2_HOST_DEV: ${{ secrets.EC2_HOST_DEV }}
+          EC2_USER_DEV: ${{ secrets.EC2_USER_DEV }}
+          EC2_SSH_KEY_DEV: ${{ secrets.EC2_SSH_KEY_DEV }}
         run: |
-          test -n "${{ secrets.EC2_HOST_DEV }}"
-          test -n "${{ secrets.EC2_USER_DEV }}"
-          test -n "${{ secrets.EC2_SSH_KEY_DEV }}"
+          if [ -n "$EC2_HOST_DEV" ] && [ -n "$EC2_USER_DEV" ] && [ -n "$EC2_SSH_KEY_DEV" ]; then
+            echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "All development deployment secrets are configured."
+          else
+            echo "deploy_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Development deployment secrets are missing. Skipping deployment."
+          fi
+
+      - name: Skip development deployment (secrets missing)
+        if: steps.validate_secrets.outputs.deploy_enabled != 'true'
+        run: echo "Development deployment skipped because EC2 deployment secrets are not configured."
 
       - name: Deploy to EC2 (Development)
+        if: steps.validate_secrets.outputs.deploy_enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST_DEV }}
@@ -161,6 +177,7 @@ jobs:
             docker compose up -d --build
 
       - name: Health Check (Development)
+        if: steps.validate_secrets.outputs.deploy_enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST_DEV }}
@@ -175,20 +192,34 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.EC2_HOST_PROD != '' && secrets.EC2_USER_PROD != '' && secrets.EC2_SSH_KEY_PROD != '') ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'production' && secrets.EC2_HOST_PROD != '' && secrets.EC2_USER_PROD != '' && secrets.EC2_SSH_KEY_PROD != '')
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'production')
     environment: production
     concurrency:
       group: shms-deploy-prod
       cancel-in-progress: false
     steps:
       - name: Validate required secrets
+        id: validate_secrets
+        env:
+          EC2_HOST_PROD: ${{ secrets.EC2_HOST_PROD }}
+          EC2_USER_PROD: ${{ secrets.EC2_USER_PROD }}
+          EC2_SSH_KEY_PROD: ${{ secrets.EC2_SSH_KEY_PROD }}
         run: |
-          test -n "${{ secrets.EC2_HOST_PROD }}"
-          test -n "${{ secrets.EC2_USER_PROD }}"
-          test -n "${{ secrets.EC2_SSH_KEY_PROD }}"
+          if [ -n "$EC2_HOST_PROD" ] && [ -n "$EC2_USER_PROD" ] && [ -n "$EC2_SSH_KEY_PROD" ]; then
+            echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "All production deployment secrets are configured."
+          else
+            echo "deploy_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Production deployment secrets are missing. Skipping deployment."
+          fi
+
+      - name: Skip production deployment (secrets missing)
+        if: steps.validate_secrets.outputs.deploy_enabled != 'true'
+        run: echo "Production deployment skipped because EC2 deployment secrets are not configured."
 
       - name: Deploy to EC2 (Production)
+        if: steps.validate_secrets.outputs.deploy_enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST_PROD }}
@@ -203,6 +234,7 @@ jobs:
             docker compose up -d --build
             
       - name: Health Check (Production)
+        if: steps.validate_secrets.outputs.deploy_enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST_PROD }}
