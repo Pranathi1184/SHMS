@@ -172,7 +172,11 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY_DEV }}
           script: |
             set -e
-            cd ~/shms
+            APP_DIR="$HOME/shms"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              git clone https://github.com/${{ github.repository }}.git "$APP_DIR"
+            fi
+            cd "$APP_DIR"
             git fetch --all
             git checkout develop
             git pull origin develop
@@ -229,7 +233,11 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY_PROD }}
           script: |
             set -e
-            cd ~/shms
+            APP_DIR="$HOME/shms"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              git clone https://github.com/${{ github.repository }}.git "$APP_DIR"
+            fi
+            cd "$APP_DIR"
             git fetch --all
             git checkout main
             git pull origin main
