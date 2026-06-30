@@ -24,6 +24,18 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const requestUrl = String(originalRequest?.url || '');
+    const normalizedUrl = requestUrl.toLowerCase();
+    const isLoginPage = typeof window !== 'undefined' && window.location.pathname === '/login';
+    const isAuthEndpoint =
+      normalizedUrl.includes('auth/login') ||
+      normalizedUrl.includes('auth/register') ||
+      normalizedUrl.includes('auth/refresh-token') ||
+      normalizedUrl.includes('auth/me');
+
+    if (isAuthEndpoint || isLoginPage) {
+      return Promise.reject(error);
+    }
     
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
