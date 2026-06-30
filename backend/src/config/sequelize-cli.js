@@ -1,6 +1,7 @@
+const { resolveDatabaseUrl } = require('../utils/databaseUrl');
+
 const makeConfig = (dbNameFallback) => {
-  const baseUrl = process.env.DATABASE_URL
-    || `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'postgres'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${dbNameFallback}`;
+  const baseUrl = resolveDatabaseUrl({ dbName: dbNameFallback });
 
   return {
     use_env_variable: null,

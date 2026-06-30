@@ -20,9 +20,15 @@ services:
     restart: always
     ports:
       - "5000:5000"
+    env_file:
+      - ./backend/.env
     environment:
-      NODE_ENV: development
-      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}
+      NODE_ENV: ${NODE_ENV:-development}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-shms}
+      DB_HOST: db
+      DB_PORT: 5432
     depends_on:
       - db
 
@@ -31,7 +37,6 @@ services:
     container_name: shms_airflow_init
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_DB_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
@@ -41,9 +46,6 @@ services:
       DB_NAME: ${DB_NAME:-shms}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      ETL_SOURCE_DB_URL: ${ETL_SOURCE_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
-      ETL_TARGET_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
-      ETL_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
       ETL_RAW_DIR: /opt/airflow/etl/data/raw
       ETL_PROCESSED_DIR: /opt/airflow/etl/data/processed
       ETL_STATE_FILE: /opt/airflow/etl/state/etl_state.json
@@ -52,7 +54,18 @@ services:
     command:
       - -c
       - |
-        airflow db migrate
+        export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=$$(python3 - <<'PY'
+        import os
+        from urllib.parse import quote
+        user = quote(os.getenv('DB_USER', 'postgres'), safe='')
+        password = quote(os.getenv('DB_PASSWORD', ''), safe='')
+        host = os.getenv('DB_HOST', 'db')
+        port = os.getenv('DB_PORT', '5432')
+        db_name = quote(os.getenv('DB_NAME', 'shms'), safe='')
+        print(f"postgresql://{user}:{password}@{host}:{port}/{db_name}")
+        PY
+        )
+        airflow db init
         airflow users create --username admin --password admin --firstname SHMS --lastname Admin --role Admin --email admin@shms.local || true
     volumes:
       - ./etl/dags:/opt/airflow/dags
@@ -69,7 +82,6 @@ services:
     restart: always
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_DB_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
@@ -80,14 +92,26 @@ services:
       DB_NAME: ${DB_NAME:-shms}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      ETL_SOURCE_DB_URL: ${ETL_SOURCE_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
-      ETL_TARGET_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
-      ETL_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
       ETL_RAW_DIR: /opt/airflow/etl/data/raw
       ETL_PROCESSED_DIR: /opt/airflow/etl/data/processed
       ETL_STATE_FILE: /opt/airflow/etl/state/etl_state.json
       ETL_SCHEMA_FILE: /opt/airflow/etl/schema.sql
-    command: airflow webserver
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=$$(python3 - <<'PY'
+        import os
+        from urllib.parse import quote
+        user = quote(os.getenv('DB_USER', 'postgres'), safe='')
+        password = quote(os.getenv('DB_PASSWORD', ''), safe='')
+        host = os.getenv('DB_HOST', 'db')
+        port = os.getenv('DB_PORT', '5432')
+        db_name = quote(os.getenv('DB_NAME', 'shms'), safe='')
+        print(f"postgresql://{user}:{password}@{host}:{port}/{db_name}")
+        PY
+        )
+        exec airflow webserver
     ports:
       - "8080:8080"
     volumes:
@@ -97,8 +121,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - airflow-init
-      - db
+      airflow-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_started
 
   airflow-scheduler:
     image: apache/airflow:2.9.3
@@ -106,7 +132,6 @@ services:
     restart: always
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_DB_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
@@ -116,14 +141,26 @@ services:
       DB_NAME: ${DB_NAME:-shms}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      ETL_SOURCE_DB_URL: ${ETL_SOURCE_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
-      ETL_TARGET_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
-      ETL_DB_URL: ${ETL_ANALYTICS_DATABASE_URL:-postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-shms}}
       ETL_RAW_DIR: /opt/airflow/etl/data/raw
       ETL_PROCESSED_DIR: /opt/airflow/etl/data/processed
       ETL_STATE_FILE: /opt/airflow/etl/state/etl_state.json
       ETL_SCHEMA_FILE: /opt/airflow/etl/schema.sql
-    command: airflow scheduler
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=$$(python3 - <<'PY'
+        import os
+        from urllib.parse import quote
+        user = quote(os.getenv('DB_USER', 'postgres'), safe='')
+        password = quote(os.getenv('DB_PASSWORD', ''), safe='')
+        host = os.getenv('DB_HOST', 'db')
+        port = os.getenv('DB_PORT', '5432')
+        db_name = quote(os.getenv('DB_NAME', 'shms'), safe='')
+        print(f"postgresql://{user}:{password}@{host}:{port}/{db_name}")
+        PY
+        )
+        exec airflow scheduler
     volumes:
       - ./etl/dags:/opt/airflow/dags
       - ./etl/scripts:/opt/airflow/scripts
@@ -131,8 +168,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - airflow-init
-      - db
+      airflow-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_started
 
   frontend:
     build:

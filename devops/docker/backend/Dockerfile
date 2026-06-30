@@ -11,9 +11,6 @@ RUN npm install --only=production
 # Bundle app source
 COPY . .
 
-# Copy environment file
-COPY .env .env
-
 # Expose port
 EXPOSE 5000
 

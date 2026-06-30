@@ -1,9 +1,19 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _build_postgres_url_from_env(db_name_override=None):
+    user = quote(os.getenv('DB_USER', 'postgres'), safe='')
+    password = quote(os.getenv('DB_PASSWORD', 'postgres'), safe='')
+    host = os.getenv('DB_HOST', 'localhost')
+    port = os.getenv('DB_PORT', '5432')
+    db_name = quote(db_name_override or os.getenv('DB_NAME', 'postgres'), safe='')
+    return f'postgresql://{user}:{password}@{host}:{port}/{db_name}'
 
 
 @dataclass(frozen=True)
@@ -34,10 +44,7 @@ class ETLConfig:
                     f"Missing required environment variables: {', '.join(missing)}. "
                     'Set ETL_SOURCE_DB_URL/ETL_TARGET_DB_URL (or ETL_DB_URL) or provide DB_* variables.'
                 )
-            fallback_url = (
-                f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
-                f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
-            )
+            fallback_url = _build_postgres_url_from_env()
             if not source_db_url:
                 source_db_url = fallback_url
             if not target_db_url:

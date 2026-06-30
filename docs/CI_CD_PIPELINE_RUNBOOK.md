@@ -26,6 +26,12 @@ Set these in repository settings before first end-to-end run.
 - `EC2_USER_PROD`
 - `EC2_SSH_KEY_PROD`
 
+## Secret Ownership Boundaries
+- Keep application runtime secrets (DB credentials, JWT secrets, AI provider keys) out of Docker images.
+- For CI test/build, use non-production test values defined in workflow job `env`.
+- For deployment, keep only deployment transport secrets in GitHub (`EC2_*`, `DOCKERHUB_*`).
+- Keep production runtime values on the target runtime (EC2 compose/env management), not in repository files.
+
 ## GitHub Environments
 Create two environments in GitHub:
 - `development`

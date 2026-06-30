@@ -149,6 +149,35 @@ docker compose up --build
 
 Services include Postgres, backend, frontend, and Airflow.
 
+Runtime configuration behavior:
+- Backend container reads runtime variables from `backend/.env` via Compose `env_file`.
+- Compose overrides backend DB host to `db` so container-to-container networking works.
+- `.env` files are ignored by Docker build context; secrets are not baked into images.
+
+## Configuration and Secrets by Environment
+
+Local (non-Docker):
+- Source: `backend/.env` (created from `backend/.env.example`)
+- Used by: backend app (`dotenv`), local scripts, tests (when running manually)
+
+Local (Docker Compose):
+- Source: `backend/.env` + Compose service environment overrides
+- Used by: backend container runtime only (not image build)
+
+GitHub Actions (CI):
+- Source: workflow job `env` values in `.github/workflows/main.yml`
+- Used by: test/build jobs only
+- Note: App runtime secrets are not required for PR validation
+
+GitHub Actions (CD to EC2):
+- Source: GitHub repository/environment secrets (`EC2_*`, `DOCKERHUB_*`)
+- Used by: SSH deployment and image publish steps
+
+AWS EC2 runtime:
+- Source: CloudFormation parameters rendered into EC2 runtime Compose file
+- Used by: backend/frontend containers at runtime
+- Note: Do not store `backend/.env` in AMIs or Docker images
+
 ## For New Contributors: How to Clone and Get Database Content
 
 Use one of these paths:

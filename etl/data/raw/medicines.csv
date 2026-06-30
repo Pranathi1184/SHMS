@@ -1,1 +1,1 @@
-id,name,generic_name,dosage_form,strength,manufacturer,batch_number,expiry_date,purchase_date,quantity,unit_price,reorder_level,description,created_at,updated_at,deleted_at
+id,name,quantity,reorder_level,updated_at

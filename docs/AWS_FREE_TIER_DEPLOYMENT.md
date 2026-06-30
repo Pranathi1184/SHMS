@@ -83,6 +83,11 @@ Use [docs/CI_CD_PIPELINE_RUNBOOK.md](CI_CD_PIPELINE_RUNBOOK.md).
 - CI runs without EC2 secrets.
 - Deploy jobs run only when EC2 secrets exist and branch/deploy target matches.
 
+Runtime secret handling on AWS:
+- Do not copy `backend/.env` into Docker images.
+- Pass runtime config through deployment parameters and container runtime environment.
+- Restrict SSH CIDR and rotate credentials regularly for demos that run longer than a day.
+
 ## 7. Demo Narrative
 For viva, explain:
 1. Local development uses Docker Compose.

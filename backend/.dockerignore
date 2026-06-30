@@ -5,4 +5,7 @@ logs
 .gitignore
 README.md
 .env.local
+.env
+.env.*
+!.env.example
 tests

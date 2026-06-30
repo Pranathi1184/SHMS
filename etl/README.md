@@ -31,6 +31,9 @@ Required when `ETL_DB_URL` is not set:
 - `DB_USER`
 - `DB_PASSWORD`
 
+When ETL falls back to `DB_*`, credentials are URL-encoded automatically before building the PostgreSQL URI.
+Do not store a separate URL-encoded password variable.
+
 Optional:
 - `ETL_MODE`: `incremental` (default) or `full_refresh`
 - `ETL_RAW_DIR`: defaults to `etl/data/raw`

@@ -1,1 +1,1 @@
-id,patient_id,doctor_id,bed_id,admission_date,discharge_date,reason_for_admission,status,notes,admitted_by,discharged_by,created_at,updated_at,deleted_at
+admission_date,discharge_date

@@ -75,6 +75,11 @@ npm run dev
 docker compose up --build
 ```
 
+Docker config notes:
+- `backend/.env` is mounted into backend runtime through Compose `env_file`.
+- Backend DB host is overridden to `db` in Compose.
+- `.env` files are excluded from Docker build context, so secrets are not baked into images.
+
 ## Validation
 Backend:
 ```powershell
@@ -96,3 +101,5 @@ npm run build
   - Ensure DB exists (`node scripts/ensure-db.js`) and rerun seed (`node run-seed.js`).
 - AI endpoints failing:
   - Check `GROQ_API_KEY`.
+- Docker backend cannot connect to DB:
+  - Confirm `backend/.env` exists and run `docker compose config` to verify `env_file` resolution.
