@@ -26,5 +26,8 @@ Thumbs.db
 *.swp
 *.swo
 
+# Uploads
+uploads/
+
 # Docker
 .docker/

@@ -159,7 +159,7 @@ const getPatientById = async (req, res) => {
         return res.status(404).json({ status: 'error', message: 'Patient profile not found for this account' });
       }
 
-      if (linkedPatient.id !== id) {
+      if (String(linkedPatient.id) !== String(id)) {
         return res.status(403).json({ status: 'error', message: 'Forbidden - Access denied' });
       }
     }
@@ -214,7 +214,7 @@ const updatePatient = async (req, res) => {
         return res.status(404).json({ status: 'error', message: 'Patient profile not found for this account' });
       }
 
-      if (linkedPatient.id !== id) {
+      if (String(linkedPatient.id) !== String(id)) {
         return res.status(403).json({ status: 'error', message: 'Forbidden - Access denied' });
       }
     }
