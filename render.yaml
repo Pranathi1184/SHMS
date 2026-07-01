@@ -1,14 +1,8 @@
-databases:
-  - name: shms-db
-    plan: starter
-    databaseName: shms
-    user: shms_user
-
 services:
   - type: web
     name: shms-backend
     env: node
-    plan: starter
+    plan: free
     rootDir: backend
     buildCommand: npm ci
     startCommand: npm start
@@ -18,9 +12,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: shms-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         sync: false
       - key: JWT_REFRESH_SECRET
@@ -45,17 +37,3 @@ services:
     envVars:
       - key: VITE_API_BASE_URL
         sync: false
-
-  - type: cron
-    name: shms-etl-cron
-    env: python
-    plan: starter
-    rootDir: etl
-    buildCommand: pip install -r requirements.txt
-    startCommand: python scripts/extract.py && python scripts/transform.py && python scripts/load.py
-    schedule: "0 * * * *"
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: shms-db
-          property: connectionString
