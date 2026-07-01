@@ -203,7 +203,9 @@ const createDoctor = async (req, res) => {
       data: createdDoctor,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     if (error instanceof UniqueConstraintError) {
       return res.status(400).json({ status: 'error', message: 'Doctor with this email or license number already exists' });
     }

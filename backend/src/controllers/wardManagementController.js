@@ -336,7 +336,9 @@ const createAdmission = async (req, res) => {
       data: populatedAdmission,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     logger.error('Create admission error:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
@@ -411,31 +413,37 @@ const getAdmissionById = async (req, res) => {
 };
 
 const updateAdmission = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
   try {
     const { id } = req.params;
     const { bedId, ...updates } = req.body;
 
     const admission = await db.Admission.findByPk(id);
     if (!admission) {
+      await transaction.rollback();
       return res.status(404).json({ status: 'error', message: 'Admission not found' });
     }
 
     if (bedId && bedId !== admission.bedId) {
       const newBed = await db.Bed.findByPk(bedId);
       if (!newBed) {
+        await transaction.rollback();
         return res.status(404).json({ status: 'error', message: 'New bed not found' });
       }
       if (newBed.status !== 'Available') {
+        await transaction.rollback();
         return res.status(400).json({ status: 'error', message: 'New bed is not available' });
       }
       const oldBed = await db.Bed.findByPk(admission.bedId);
       if (oldBed) {
-        await oldBed.update({ status: 'Available' });
+        await oldBed.update({ status: 'Available' }, { transaction });
       }
-      await newBed.update({ status: 'Occupied' });
+      await newBed.update({ status: 'Occupied' }, { transaction });
     }
 
-    await admission.update({ ...updates, bedId });
+    await admission.update({ ...updates, bedId }, { transaction });
+
+    await transaction.commit();
 
     const populatedAdmission = await db.Admission.findByPk(admission.id, {
       include: [
@@ -451,6 +459,9 @@ const updateAdmission = async (req, res) => {
       data: populatedAdmission,
     });
   } catch (error) {
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     logger.error('Update admission error:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
@@ -502,33 +513,43 @@ const dischargePatient = async (req, res) => {
       data: populatedAdmission,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     logger.error('Discharge patient error:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
 };
 
 const deleteAdmission = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
   try {
     const { id } = req.params;
 
     const admission = await db.Admission.findByPk(id);
     if (!admission) {
+      await transaction.rollback();
       return res.status(404).json({ status: 'error', message: 'Admission not found' });
     }
 
-    await admission.destroy();
+    const bedId = admission.bedId;
+    await admission.destroy({ transaction });
 
-    const bed = await db.Bed.findByPk(admission.bedId);
+    const bed = await db.Bed.findByPk(bedId);
     if (bed && bed.status === 'Occupied') {
-      await bed.update({ status: 'Available' });
+      await bed.update({ status: 'Available' }, { transaction });
     }
+
+    await transaction.commit();
 
     res.status(200).json({
       status: 'success',
       message: 'Admission deleted successfully',
     });
   } catch (error) {
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     logger.error('Delete admission error:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }

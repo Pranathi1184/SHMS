@@ -45,7 +45,6 @@ exports.getNoShowPredictions = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch no-show predictions',
-      error: error.message,
     });
   }
 };
@@ -83,7 +82,6 @@ exports.getDoctorLoadForecasts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch doctor load forecasts',
-      error: error.message,
     });
   }
 };
@@ -118,7 +116,6 @@ exports.getMedicineDemandForecasts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch medicine demand forecasts',
-      error: error.message,
     });
   }
 };
@@ -149,7 +146,6 @@ exports.getBedOccupancyForecasts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch bed occupancy forecasts',
-      error: error.message,
     });
   }
 };
@@ -187,7 +183,6 @@ exports.getBillingRiskScores = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch billing risk scores',
-      error: error.message,
     });
   }
 };
@@ -218,7 +213,6 @@ exports.getPredictionSummary = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch prediction summary',
-      error: error.message,
     });
   }
 };

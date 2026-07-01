@@ -248,7 +248,9 @@ const createPharmacySale = async (req, res) => {
       },
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     logger.error('Create pharmacy sale error:', error);
     return res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
