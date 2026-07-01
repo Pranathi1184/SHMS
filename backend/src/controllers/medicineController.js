@@ -15,8 +15,8 @@ const createMedicine = asyncHandler(async (req, res) => {
 });
 
 const getMedicines = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
   const { search = '', lowStock } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
 
   let whereClause = {};
 
@@ -48,7 +48,9 @@ const getMedicines = asyncHandler(async (req, res) => {
 });
 
 const getMedicineById = asyncHandler(async (req, res) => {
-  const medicine = await findByPkOr404(db.Medicine, req.params.id, 'Medicine');
+  const { id } = req.params;
+
+  const medicine = await findByPkOr404(db.Medicine, id, 'Medicine');
 
   res.status(200).json({
     status: 'success',
@@ -57,7 +59,9 @@ const getMedicineById = asyncHandler(async (req, res) => {
 });
 
 const updateMedicine = asyncHandler(async (req, res) => {
-  const medicine = await findByPkOr404(db.Medicine, req.params.id, 'Medicine');
+  const { id } = req.params;
+
+  const medicine = await findByPkOr404(db.Medicine, id, 'Medicine');
   await medicine.update(req.body);
 
   res.status(200).json({
@@ -68,7 +72,9 @@ const updateMedicine = asyncHandler(async (req, res) => {
 });
 
 const deleteMedicine = asyncHandler(async (req, res) => {
-  const medicine = await findByPkOr404(db.Medicine, req.params.id, 'Medicine');
+  const { id } = req.params;
+
+  const medicine = await findByPkOr404(db.Medicine, id, 'Medicine');
   await medicine.destroy();
 
   res.status(200).json({
@@ -195,7 +201,9 @@ const createPharmacySale = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     throw error;
   }
 });

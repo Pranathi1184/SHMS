@@ -5,6 +5,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
 const { findByPkOr404, getLinkedPatientForUser } = require('../utils/controllerHelpers');
 
+const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+
 const createPrescription = asyncHandler(async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
@@ -16,11 +18,24 @@ const createPrescription = asyncHandler(async (req, res) => {
       items,
     } = req.body;
 
-    await findByPkOr404(db.Patient, patientId, 'Patient');
-    await findByPkOr404(db.Doctor, doctorId, 'Doctor');
+    const patient = await db.Patient.findByPk(patientId);
+    if (!patient) {
+      await transaction.rollback();
+      return res.status(404).json({ status: 'error', message: 'Patient not found' });
+    }
+
+    const doctor = await db.Doctor.findByPk(doctorId);
+    if (!doctor) {
+      await transaction.rollback();
+      return res.status(404).json({ status: 'error', message: 'Doctor not found' });
+    }
 
     if (ehrId) {
-      await findByPkOr404(db.EHR, ehrId, 'EHR');
+      const ehr = await db.EHR.findByPk(ehrId);
+      if (!ehr) {
+        await transaction.rollback();
+        return res.status(404).json({ status: 'error', message: 'EHR not found' });
+      }
     }
 
     const prescription = await db.Prescription.create({
@@ -49,17 +64,21 @@ const createPrescription = asyncHandler(async (req, res) => {
       ],
     });
 
-    await logAudit({
-      req,
-      action: 'CREATE',
-      entityType: 'Prescription',
-      entityId: prescription.id,
-      after: {
-        patientId: prescription.patientId,
-        doctorId: prescription.doctorId,
-        status: prescription.status,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'CREATE',
+        entityType: 'Prescription',
+        entityId: prescription.id,
+        after: {
+          patientId: prescription.patientId,
+          doctorId: prescription.doctorId,
+          status: prescription.status,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-create prescription audit log failed', { message: auditError.message });
+    }
 
     res.status(201).json({
       status: 'success',
@@ -67,18 +86,30 @@ const createPrescription = asyncHandler(async (req, res) => {
       data: populatedPrescription,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     throw error;
   }
 });
 
 const getPrescriptions = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
   const { patientId, doctorId, status } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
 
   let whereClause = {};
   if (patientId) whereClause.patientId = patientId;
-  if (doctorId) whereClause.doctorId = doctorId;
+  if (doctorId) {
+    if (isUuid(doctorId)) {
+      whereClause.doctorId = doctorId;
+    } else {
+      const doctor = await db.Doctor.findOne({ where: { licenseNumber: doctorId } });
+      if (!doctor) {
+        return res.status(404).json({ status: 'error', message: 'Doctor not found for provided license number' });
+      }
+      whereClause.doctorId = doctor.id;
+    }
+  }
   if (status) whereClause.status = status;
 
   if (req.user.role === 'Patient') {
@@ -111,7 +142,9 @@ const getPrescriptions = asyncHandler(async (req, res) => {
 });
 
 const getPrescriptionById = asyncHandler(async (req, res) => {
-  const prescription = await findByPkOr404(db.Prescription, req.params.id, 'Prescription', {
+  const { id } = req.params;
+
+  const prescription = await findByPkOr404(db.Prescription, id, 'Prescription', {
     include: [
       { model: db.Patient, as: 'patient' },
       { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
@@ -138,8 +171,10 @@ const getPrescriptionById = asyncHandler(async (req, res) => {
 });
 
 const updatePrescription = asyncHandler(async (req, res) => {
-  const prescription = await findByPkOr404(db.Prescription, req.params.id, 'Prescription');
+  const { id } = req.params;
   const { status, notes } = req.body;
+
+  const prescription = await findByPkOr404(db.Prescription, id, 'Prescription');
 
   const beforeState = prescription.toJSON();
   await prescription.update({ status, notes });
@@ -152,20 +187,24 @@ const updatePrescription = asyncHandler(async (req, res) => {
     ],
   });
 
-  await logAudit({
-    req,
-    action: 'UPDATE',
-    entityType: 'Prescription',
-    entityId: prescription.id,
-    before: {
-      status: beforeState.status,
-      notes: beforeState.notes,
-    },
-    after: {
-      status: prescription.status,
-      notes: prescription.notes,
-    },
-  });
+  try {
+    await logAudit({
+      req,
+      action: 'UPDATE',
+      entityType: 'Prescription',
+      entityId: prescription.id,
+      before: {
+        status: beforeState.status,
+        notes: beforeState.notes,
+      },
+      after: {
+        status: prescription.status,
+        notes: prescription.notes,
+      },
+    });
+  } catch (auditError) {
+    logger.warn('Post-update prescription audit log failed', { message: auditError.message });
+  }
 
   res.status(200).json({
     status: 'success',
@@ -220,18 +259,22 @@ const dispensePrescription = asyncHandler(async (req, res) => {
       ],
     });
 
-    await logAudit({
-      req,
-      action: 'DISPENSE',
-      entityType: 'Prescription',
-      entityId: prescription.id,
-      before: {
-        status: beforeState.status,
-      },
-      after: {
-        status: 'Dispensed',
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'DISPENSE',
+        entityType: 'Prescription',
+        entityId: prescription.id,
+        before: {
+          status: beforeState.status,
+        },
+        after: {
+          status: 'Dispensed',
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-dispense prescription audit log failed', { message: auditError.message });
+    }
 
     res.status(200).json({
       status: 'success',
@@ -239,29 +282,36 @@ const dispensePrescription = asyncHandler(async (req, res) => {
       data: populatedPrescription,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     throw error;
   }
 });
 
 const deletePrescription = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   const prescription = await findByPkOr404(db.Prescription, id, 'Prescription');
 
   const beforeState = prescription.toJSON();
   await prescription.destroy();
 
-  await logAudit({
-    req,
-    action: 'DELETE',
-    entityType: 'Prescription',
-    entityId: id,
-    before: {
-      patientId: beforeState.patientId,
-      doctorId: beforeState.doctorId,
-      status: beforeState.status,
-    },
-  });
+  try {
+    await logAudit({
+      req,
+      action: 'DELETE',
+      entityType: 'Prescription',
+      entityId: id,
+      before: {
+        patientId: beforeState.patientId,
+        doctorId: beforeState.doctorId,
+        status: beforeState.status,
+      },
+    });
+  } catch (auditError) {
+    logger.warn('Post-delete prescription audit log failed', { message: auditError.message });
+  }
 
   res.status(200).json({
     status: 'success',

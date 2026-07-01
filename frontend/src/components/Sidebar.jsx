@@ -104,10 +104,12 @@ const menuItems = {
   'Lab Technician': [
     { text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
     { text: 'Laboratory', icon: <MedicalServices />, path: '/laboratory' },
+    { text: 'EHR Registry', icon: <Assignment />, path: '/ehr-list' },
     { text: 'AI Center', icon: <SmartToy />, path: '/ai-center' },
   ],
   Pharmacist: [
     { text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
+    { text: 'EHR Registry', icon: <Assignment />, path: '/ehr-list' },
     { text: 'Pharmacy', icon: <Medication />, path: '/pharmacy' },
     { text: 'Prescriptions', icon: <HealthAndSafety />, path: '/prescriptions' },
     { text: 'AI Center', icon: <SmartToy />, path: '/ai-center' },

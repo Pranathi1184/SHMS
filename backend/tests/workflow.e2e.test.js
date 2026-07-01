@@ -86,6 +86,7 @@ describe('SHMS Workflow E2E Verification', () => {
         description: 'Workflow seed medicine',
       },
     });
+    await medicine.update({ quantity: Math.max(Number(medicine.quantity || 0), 200) });
 
     let bed = await db.Bed.findOne({ where: { status: 'Available' } });
     if (!bed) {

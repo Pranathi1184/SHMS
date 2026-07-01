@@ -113,8 +113,8 @@ const createBill = asyncHandler(async (req, res) => {
 });
 
 const getBills = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
   const { patientId, paymentStatus } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
 
   let whereClause = {};
   if (patientId) whereClause.patientId = patientId;
@@ -141,7 +141,9 @@ const getBills = asyncHandler(async (req, res) => {
 });
 
 const getBillById = asyncHandler(async (req, res) => {
-  const bill = await findByPkOr404(db.Bill, req.params.id, 'Bill', {
+  const { id } = req.params;
+
+  const bill = await findByPkOr404(db.Bill, id, 'Bill', {
     include: [
       { model: db.Patient, as: 'patient' },
       { model: db.User, as: 'creator', attributes: { exclude: ['password'] } },
@@ -156,8 +158,10 @@ const getBillById = asyncHandler(async (req, res) => {
 });
 
 const updateBill = asyncHandler(async (req, res) => {
-  const bill = await findByPkOr404(db.Bill, req.params.id, 'Bill');
+  const { id } = req.params;
   const { totalAmount, discount, taxAmount, ...updates } = req.body;
+
+  const bill = await findByPkOr404(db.Bill, id, 'Bill');
 
   let netAmount = bill.netAmount;
   if (totalAmount !== undefined || discount !== undefined || taxAmount !== undefined) {
@@ -226,22 +230,27 @@ const updateBill = asyncHandler(async (req, res) => {
 
 const deleteBill = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   const bill = await findByPkOr404(db.Bill, id, 'Bill');
 
   const beforeState = bill.toJSON();
   await bill.destroy();
 
-  await logAudit({
-    req,
-    action: 'DELETE',
-    entityType: 'Bill',
-    entityId: id,
-    before: {
-      billNumber: beforeState.billNumber,
-      patientId: beforeState.patientId,
-      totalAmount: beforeState.totalAmount,
-    },
-  });
+  try {
+    await logAudit({
+      req,
+      action: 'DELETE',
+      entityType: 'Bill',
+      entityId: id,
+      before: {
+        billNumber: beforeState.billNumber,
+        patientId: beforeState.patientId,
+        totalAmount: beforeState.totalAmount,
+      },
+    });
+  } catch (auditError) {
+    logger.warn('Post-delete bill audit log failed', { message: auditError.message });
+  }
 
   res.status(200).json({
     status: 'success',

@@ -1,5 +1,4 @@
 const { Op } = require('sequelize');
-const logger = require('../utils/logger');
 const db = require('../models');
 const { uploadPatientDocumentBuffer } = require('../services/storageService');
 const asyncHandler = require('../utils/asyncHandler');
@@ -70,7 +69,6 @@ const getPatients = asyncHandler(async (req, res) => {
     });
   }
 
-  const { page, limit, offset } = parsePagination(req.query);
   const {
     search = '',
     gender,
@@ -78,6 +76,7 @@ const getPatients = asyncHandler(async (req, res) => {
     sortBy = 'createdAt',
     sortOrder = 'DESC',
   } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
 
   let whereClause = {};
 
@@ -136,7 +135,7 @@ const getPatientById = asyncHandler(async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'Patient profile not found for this account' });
     }
 
-    if (linkedPatient.id !== id) {
+    if (String(linkedPatient.id) !== String(id)) {
       return res.status(403).json({ status: 'error', message: 'Forbidden - Access denied' });
     }
   }
@@ -182,7 +181,7 @@ const updatePatient = asyncHandler(async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'Patient profile not found for this account' });
     }
 
-    if (linkedPatient.id !== id) {
+    if (String(linkedPatient.id) !== String(id)) {
       return res.status(403).json({ status: 'error', message: 'Forbidden - Access denied' });
     }
   }
@@ -218,7 +217,9 @@ const updatePatient = asyncHandler(async (req, res) => {
 });
 
 const deletePatient = asyncHandler(async (req, res) => {
-  const patient = await findByPkOr404(db.Patient, req.params.id, 'Patient');
+  const { id } = req.params;
+
+  const patient = await findByPkOr404(db.Patient, id, 'Patient');
   await patient.destroy();
 
   res.status(200).json({
@@ -236,6 +237,8 @@ const getMyProfile = asyncHandler(async (req, res) => {
   const patient = await db.Patient.findByPk(linkedPatient.id, {
     include: [
       { model: db.Appointment, as: 'appointments', include: [{ model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] }] },
+      { model: db.EHR, as: 'ehrRecords', include: [{ model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] }] },
+      { model: db.LaboratoryTest, as: 'laboratoryTests', include: [{ model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] }] },
       { model: db.Prescription, as: 'prescriptions', include: [{ model: db.PrescriptionItem, as: 'items', include: [{ model: db.Medicine, as: 'medicine' }] }] },
       { model: db.Bill, as: 'bills', include: [{ model: db.BillItem, as: 'items' }] },
       { model: db.PatientDocument, as: 'documents', include: [{ model: db.User, as: 'uploader', attributes: ['id', 'firstName', 'lastName', 'email'] }] },
@@ -266,7 +269,7 @@ const uploadPatientDocument = asyncHandler(async (req, res) => {
     return res.status(400).json({ status: 'error', message: 'Document file is required' });
   }
 
-  await findByPkOr404(db.Patient, patientId, 'Patient');
+  const patient = await findByPkOr404(db.Patient, patientId, 'Patient');
 
   const accessAllowed = await canAccessPatient(req.user, patientId);
   if (!accessAllowed) {

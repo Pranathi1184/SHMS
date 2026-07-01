@@ -163,11 +163,16 @@ def _build_average_stay(input_dir):
 
 def _build_appointment_features(input_dir):
     appointments = pd.read_csv(input_dir / 'appointments.csv')
-    ensure_required_columns(
-        appointments,
-        ['id', 'patient_id', 'doctor_id', 'appointment_date', 'start_time', 'created_at', 'status'],
-        'appointments.csv',
-    )
+    ensure_required_columns(appointments, ['id', 'patient_id', 'appointment_date'], 'appointments.csv')
+
+    if 'doctor_id' not in appointments.columns:
+        appointments['doctor_id'] = None
+    if 'created_at' not in appointments.columns:
+        appointments['created_at'] = appointments['appointment_date']
+    if 'status' not in appointments.columns:
+        appointments['status'] = 'Scheduled'
+    if 'start_time' not in appointments.columns:
+        appointments['start_time'] = '09:00:00'
 
     appointments['appointment_date'] = _to_datetime(appointments['appointment_date'])
     appointments['created_at'] = _to_datetime(appointments['created_at'])

@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
+  Autocomplete,
   Box,
   Paper,
   Typography,
@@ -29,8 +30,11 @@ import {
   Delete,
   Visibility,
 } from '@mui/icons-material';
+import { departmentService } from '../services/departmentService';
+import { doctorService } from '../services/doctorService';
+import { patientService } from '../services/patientService';
 import { wardManagementService } from '../services/wardManagementService';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
 import { readableId } from '../utils/formatters';
 
@@ -44,11 +48,17 @@ const WardManagement = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [data, setData] = useState({ wards: [], beds: [], admissions: [] });
+  const [departmentOptions, setDepartmentOptions] = useState([]);
+  const [wardOptions, setWardOptions] = useState([]);
+  const [bedOptions, setBedOptions] = useState([]);
+  const [patientOptions, setPatientOptions] = useState([]);
+  const [doctorOptions, setDoctorOptions] = useState([]);
   const { user } = useAuth();
   const isAdmin = user?.role === 'Administrator';
   const isReceptionist = user?.role === 'Receptionist';
   const isNurse = user?.role === 'Nurse';
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -57,7 +67,32 @@ const WardManagement = () => {
 
   useEffect(() => {
     fetchData();
+    loadReferenceData();
   }, [activeTab]);
+
+  const loadReferenceData = async () => {
+    try {
+      const [departmentsResponse, wardsResponse, bedsResponse, patientsResponse, doctorsResponse] = await Promise.all([
+        departmentService.getDepartments({ page: 1, limit: 200 }),
+        wardManagementService.getWards({ page: 1, limit: 200 }),
+        wardManagementService.getBeds({ page: 1, limit: 200 }),
+        patientService.getAllPatients({ page: 1, limit: 200 }),
+        doctorService.getDoctors({ page: 1, limit: 100 }),
+      ]);
+
+      setDepartmentOptions(departmentsResponse?.data?.departments || []);
+      setWardOptions(wardsResponse?.data?.wards || []);
+      setBedOptions(bedsResponse?.data?.beds || []);
+      setPatientOptions(patientsResponse?.data?.patients || []);
+      setDoctorOptions(doctorsResponse?.data?.doctors || []);
+    } catch (err) {
+      setDepartmentOptions([]);
+      setWardOptions([]);
+      setBedOptions([]);
+      setPatientOptions([]);
+      setDoctorOptions([]);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -82,7 +117,7 @@ const WardManagement = () => {
 
   const handleOpenAddDialog = () => {
     setEditingItem(null);
-    reset();
+    reset({ status: activeTab === 1 ? 'Available' : undefined });
     setDialogOpen(true);
   };
 
@@ -183,6 +218,23 @@ const WardManagement = () => {
     } catch (err) {
       setError('Failed to delete item');
     }
+  };
+
+  const departmentLabel = (department) => (department ? department.name || '' : '');
+  const wardLabel = (ward) => {
+    if (!ward) return '';
+    return `${ward.name || 'Ward'} | ${ward.type || 'General'}`;
+  };
+  const bedLabel = (bed) => {
+    if (!bed) return '';
+    const wardName = bed.ward?.name || 'No ward';
+    return `${bed.bedNumber || readableId('bed', bed.id, bed)} | ${wardName} | ${bed.status || 'Unknown'}`;
+  };
+  const patientLabel = (patient) => (patient ? `${patient.firstName || ''} ${patient.lastName || ''}`.trim() : '');
+  const doctorLabel = (doctor) => {
+    if (!doctor) return '';
+    const name = `${doctor.user?.firstName || ''} ${doctor.user?.lastName || ''}`.trim();
+    return `${name} | ${doctor.specialization || 'General'} | ${doctor.department?.name || 'No department'}`;
   };
 
   if (loading) {
@@ -430,14 +482,29 @@ const WardManagement = () => {
                   error={!!errors.name}
                   helperText={errors.name?.message}
                 />
-                <TextField
-                  margin="normal"
-                  fullWidth
-                  label="Department ID"
-                  placeholder="UUID"
-                  {...register('departmentId', { required: 'Department ID is required' })}
-                  error={!!errors.departmentId}
-                  helperText={errors.departmentId?.message}
+                <Controller
+                  name="departmentId"
+                  control={control}
+                  rules={{ required: 'Department is required' }}
+                  render={({ field }) => (
+                    <Autocomplete
+                      options={departmentOptions}
+                      getOptionLabel={departmentLabel}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      value={departmentOptions.find((department) => department.id === field.value) || null}
+                      onChange={(_, value) => field.onChange(value?.id || '')}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          margin="normal"
+                          fullWidth
+                          label="Department"
+                          error={!!errors.departmentId}
+                          helperText={errors.departmentId?.message}
+                        />
+                      )}
+                    />
+                  )}
                 />
                 <TextField
                   margin="normal"
@@ -475,14 +542,29 @@ const WardManagement = () => {
                   error={!!errors.bedNumber}
                   helperText={errors.bedNumber?.message}
                 />
-                <TextField
-                  margin="normal"
-                  fullWidth
-                  label="Ward ID"
-                  placeholder="UUID"
-                  {...register('wardId', { required: 'Ward ID is required' })}
-                  error={!!errors.wardId}
-                  helperText={errors.wardId?.message}
+                <Controller
+                  name="wardId"
+                  control={control}
+                  rules={{ required: 'Ward is required' }}
+                  render={({ field }) => (
+                    <Autocomplete
+                      options={wardOptions}
+                      getOptionLabel={wardLabel}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      value={wardOptions.find((ward) => ward.id === field.value) || null}
+                      onChange={(_, value) => field.onChange(value?.id || '')}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          margin="normal"
+                          fullWidth
+                          label="Ward"
+                          error={!!errors.wardId}
+                          helperText={errors.wardId?.message}
+                        />
+                      )}
+                    />
+                  )}
                 />
                 <TextField
                   margin="normal"
@@ -511,33 +593,78 @@ const WardManagement = () => {
 
             {activeTab === 2 && (
               <>
-                <TextField
-                  margin="normal"
-                  fullWidth
-                  label="Patient ID"
-                  placeholder="UUID"
-                  disabled={!!editingItem}
-                  {...register('patientId', { required: 'Patient ID is required' })}
-                  error={!!errors.patientId}
-                  helperText={errors.patientId?.message}
+                <Controller
+                  name="patientId"
+                  control={control}
+                  rules={{ required: 'Patient is required' }}
+                  render={({ field }) => (
+                    <Autocomplete
+                      options={patientOptions}
+                      disabled={!!editingItem}
+                      getOptionLabel={patientLabel}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      value={patientOptions.find((patient) => patient.id === field.value) || null}
+                      onChange={(_, value) => field.onChange(value?.id || '')}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          margin="normal"
+                          fullWidth
+                          label="Patient"
+                          error={!!errors.patientId}
+                          helperText={errors.patientId?.message}
+                        />
+                      )}
+                    />
+                  )}
                 />
-                <TextField
-                  margin="normal"
-                  fullWidth
-                  label="Doctor ID"
-                  placeholder="UUID"
-                  {...register('doctorId', { required: 'Doctor ID is required' })}
-                  error={!!errors.doctorId}
-                  helperText={errors.doctorId?.message}
+                <Controller
+                  name="doctorId"
+                  control={control}
+                  rules={{ required: 'Doctor is required' }}
+                  render={({ field }) => (
+                    <Autocomplete
+                      options={doctorOptions}
+                      getOptionLabel={doctorLabel}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      value={doctorOptions.find((doctor) => doctor.id === field.value) || null}
+                      onChange={(_, value) => field.onChange(value?.id || '')}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          margin="normal"
+                          fullWidth
+                          label="Doctor"
+                          error={!!errors.doctorId}
+                          helperText={errors.doctorId?.message}
+                        />
+                      )}
+                    />
+                  )}
                 />
-                <TextField
-                  margin="normal"
-                  fullWidth
-                  label="Bed ID"
-                  placeholder="UUID"
-                  {...register('bedId', { required: 'Bed ID is required' })}
-                  error={!!errors.bedId}
-                  helperText={errors.bedId?.message}
+                <Controller
+                  name="bedId"
+                  control={control}
+                  rules={{ required: 'Bed is required' }}
+                  render={({ field }) => (
+                    <Autocomplete
+                      options={bedOptions}
+                      getOptionLabel={bedLabel}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      value={bedOptions.find((bed) => bed.id === field.value) || null}
+                      onChange={(_, value) => field.onChange(value?.id || '')}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          margin="normal"
+                          fullWidth
+                          label="Bed"
+                          error={!!errors.bedId}
+                          helperText={errors.bedId?.message}
+                        />
+                      )}
+                    />
+                  )}
                 />
                 <TextField
                   margin="normal"

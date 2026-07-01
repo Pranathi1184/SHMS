@@ -1,7 +1,17 @@
 const promptTemplates = {
   patientSummary: (patientData) => {
     const data = patientData?.dataValues || patientData || {};
-    const medications = data.prescriptions?.map(p => `${p.medicationName} (${p.dosage})`).join(', ') || 'None listed';
+    const medications = (data.prescriptions || [])
+      .flatMap((prescription) => {
+        const items = prescription?.items || [];
+        return items.map((item) => {
+          const medicineName = item?.medicine?.name || item?.medicationName || 'Unknown medicine';
+          const dose = item?.dosage || item?.frequency || 'dosage not specified';
+          return `${medicineName} (${dose})`;
+        });
+      })
+      .filter(Boolean)
+      .join(', ') || 'None listed';
     
     return `You are a clinical physician creating a handoff summary. Based on the patient history below, provide a CONCISE clinical summary.
 
@@ -74,17 +84,28 @@ REMINDER MESSAGE:`;
 VIEWER ROLE: ${role}
 CONTEXT: ${JSON.stringify(context, null, 2)}
 
+REQUEST CONTEXT: ${JSON.stringify(context?.clientContext || null, null, 2)}
+
 STRICT RULES:
 ? Never invent data or diagnoses
 ? Never expose data outside this user's scope
 ? Patients see ONLY their own data
 ? Doctors see ONLY their patients
 ? Say "I don't have that information" if missing
+? If the query requests details not present in CONTEXT, explicitly list which fields are missing
+? Do not infer dates, values, IDs, statuses, or names that are not explicitly present in CONTEXT
+? When citing facts, refer to the exact context area (for example: patient profile, appointments, bills)
+? If REQUEST CONTEXT is provided, use it as the user's current task framing but do not treat it as medical fact
 
 ROLE PERMISSIONS:
 Admin: All hospital data | Doctor: Own patients only | Nurse: Today''s assignments | Receptionist: Scheduling only | Patient: Own records only | Other: Operational data only
 
 USER QUERY: "${query}"
+
+RESPONSE FORMAT:
+1) Direct answer (1-4 lines)
+2) Evidence from context (short bullets)
+3) Limitation note if any information is missing
 
 RESPONSE (Use provided context only. If outside scope, explain limitation clearly):`,
 };

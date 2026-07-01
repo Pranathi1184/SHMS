@@ -13,7 +13,7 @@ const {
 router.get(
   '/patient-summary/:patientId',
   authenticateToken,
-  authorizeRoles('Administrator', 'Doctor'),
+  authorizeRoles('Administrator', 'Doctor', 'Patient'),
   validatePatientSummary,
   aiController.getPatientSummary
 );
@@ -29,7 +29,7 @@ router.post(
 router.get(
   '/appointment-reminder/:appointmentId',
   authenticateToken,
-  authorizeRoles('Administrator', 'Receptionist', 'Doctor'),
+  authorizeRoles('Administrator', 'Receptionist', 'Doctor', 'Patient'),
   validateAppointmentReminder,
   aiController.getReminderMessage
 );

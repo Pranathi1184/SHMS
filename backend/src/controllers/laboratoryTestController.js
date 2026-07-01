@@ -1,9 +1,10 @@
-const logger = require('../utils/logger');
 const db = require('../models');
 const aiService = require('../services/aiService');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
 const { findByPkOr404 } = require('../utils/controllerHelpers');
+
+const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
 
 const createLabTest = asyncHandler(async (req, res) => {
   const {
@@ -42,12 +43,22 @@ const createLabTest = asyncHandler(async (req, res) => {
 });
 
 const getLabTests = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
   const { patientId, doctorId, status } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
 
   let whereClause = {};
   if (patientId) whereClause.patientId = patientId;
-  if (doctorId) whereClause.doctorId = doctorId;
+  if (doctorId) {
+    if (isUuid(doctorId)) {
+      whereClause.doctorId = doctorId;
+    } else {
+      const doctor = await db.Doctor.findOne({ where: { licenseNumber: doctorId } });
+      if (!doctor) {
+        return res.status(404).json({ status: 'error', message: 'Doctor not found for provided license number' });
+      }
+      whereClause.doctorId = doctor.id;
+    }
+  }
   if (status) whereClause.status = status;
 
   const { count, rows: labTests } = await db.LaboratoryTest.findAndCountAll({
@@ -73,7 +84,9 @@ const getLabTests = asyncHandler(async (req, res) => {
 });
 
 const getLabTestById = asyncHandler(async (req, res) => {
-  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test', {
+  const { id } = req.params;
+
+  const labTest = await findByPkOr404(db.LaboratoryTest, id, 'Lab test', {
     include: [
       { model: db.Patient, as: 'patient' },
       { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
@@ -89,8 +102,10 @@ const getLabTestById = asyncHandler(async (req, res) => {
 });
 
 const updateLabTest = asyncHandler(async (req, res) => {
-  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test');
+  const { id } = req.params;
   const { status, results, notes } = req.body;
+
+  const labTest = await findByPkOr404(db.LaboratoryTest, id, 'Lab test');
 
   const updateData = {
     status,
@@ -125,7 +140,9 @@ const updateLabTest = asyncHandler(async (req, res) => {
 });
 
 const deleteLabTest = asyncHandler(async (req, res) => {
-  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test');
+  const { id } = req.params;
+
+  const labTest = await findByPkOr404(db.LaboratoryTest, id, 'Lab test');
   await labTest.destroy();
 
   res.status(200).json({
@@ -135,7 +152,9 @@ const deleteLabTest = asyncHandler(async (req, res) => {
 });
 
 const generateLabReport = asyncHandler(async (req, res) => {
-  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test', {
+  const { id } = req.params;
+
+  const labTest = await findByPkOr404(db.LaboratoryTest, id, 'Lab test', {
     include: [
       { model: db.Patient, as: 'patient' },
       { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },

@@ -152,8 +152,8 @@ const BillingState = Annotation.Root({
 /**
  * 1. Smart Scheduling Agent
  */
-const runSchedulingAgent = async (doctorId, date, actor = {}) => {
-  logger.info('Scheduling agent started', { doctorId, date, role: actor.role, userId: actor.id });
+const runSchedulingAgent = async (doctorId, date, actor = {}, operatorContext = '') => {
+  logger.info('Scheduling agent started', { doctorId, date, role: actor.role, userId: actor.id, hasContext: Boolean(String(operatorContext || '').trim()) });
   try {
     const workflow = new StateGraph(SchedulingState);
 
@@ -184,7 +184,7 @@ const runSchedulingAgent = async (doctorId, date, actor = {}) => {
     });
 
     workflow.addNode('suggest_slots', async (state) => {
-      const prompt = `Viewer role: ${actor.role || 'User'}\nViewer userId: ${actor.id || 'N/A'}\n` + agentPrompts.scheduling(state.date, state.availableSlots, actor.role || 'User');
+      const prompt = `Viewer role: ${actor.role || 'User'}\nViewer userId: ${actor.id || 'N/A'}\nOperator context: ${String(operatorContext || '').trim() || 'None provided'}\n` + agentPrompts.scheduling(state.date, state.availableSlots, actor.role || 'User', String(operatorContext || '').trim());
       const response = await invokeWithRetry(prompt, 'scheduling');
       return { ...state, suggestions: response.content };
     });
@@ -195,10 +195,10 @@ const runSchedulingAgent = async (doctorId, date, actor = {}) => {
 
     const app = workflow.compile();
     const result = await app.invoke({ doctorId, date });
-    logger.info('Scheduling agent completed', { doctorId, date, role: actor.role, userId: actor.id });
+    logger.info('Scheduling agent completed', { doctorId, date, role: actor.role, userId: actor.id, hasContext: Boolean(String(operatorContext || '').trim()) });
     return result;
   } catch (error) {
-    logger.warn('Scheduling agent fallback used', { doctorId, date, role: actor.role, userId: actor.id, message: error.message });
+    logger.warn('Scheduling agent fallback used', { doctorId, date, role: actor.role, userId: actor.id, hasContext: Boolean(String(operatorContext || '').trim()), message: error.message });
     const where = {
       appointmentDate: date,
       status: { [Op.ne]: 'Cancelled' },
@@ -225,6 +225,7 @@ const runSchedulingAgent = async (doctorId, date, actor = {}) => {
       doctorId,
       date,
       availableSlots: booked,
+      appliedContext: String(operatorContext || '').trim() || null,
       suggestions: booked.length === 0
         ? 'The schedule is open. Prioritize morning appointments and leave one buffer slot.'
         : `Booked slots: ${booked.join(', ')}. Prefer open gaps before 11:00 or after 15:00 and keep one emergency slot free.`,
@@ -235,8 +236,8 @@ const runSchedulingAgent = async (doctorId, date, actor = {}) => {
 /**
  * 2. Follow-Up Agent
  */
-const runFollowUpAgent = async (actor = {}) => {
-  logger.info('Follow-up agent started', { role: actor.role, userId: actor.id });
+const runFollowUpAgent = async (actor = {}, operatorContext = '') => {
+  logger.info('Follow-up agent started', { role: actor.role, userId: actor.id, hasContext: Boolean(String(operatorContext || '').trim()) });
   try {
     const workflow = new StateGraph(FollowUpState);
 
@@ -265,9 +266,11 @@ const runFollowUpAgent = async (actor = {}) => {
     workflow.addNode('generate_reminders', async (state) => {
       const reminders = [];
       for (const adm of state.dischargedPatients) {
-        const prompt = `Viewer role: ${actor.role || 'User'}\n` + agentPrompts.followUp(adm.patient.firstName, adm.reasonForAdmission, actor.role || 'User');
+        const patientName = adm.patient?.firstName || adm.patient?.fullName || 'Patient';
+        const prompt = `Viewer role: ${actor.role || 'User'}\nOperator context: ${String(operatorContext || '').trim() || 'None provided'}\n` + agentPrompts.followUp(patientName, adm.reasonForAdmission, actor.role || 'User');
         const response = await invokeWithRetry(prompt, 'followUp');
-        reminders.push({ patientId: adm.patient.id, message: response.content });
+        const patientId = adm.patient?.id || adm.patientId || adm.id || null;
+        reminders.push({ patientId, message: response.content });
       }
 
       const mappings = await getActiveUsersForPatients(reminders.map((r) => r.patientId));
@@ -292,7 +295,10 @@ const runFollowUpAgent = async (actor = {}) => {
     const app = workflow.compile();
     const result = await app.invoke({});
     logger.info('Follow-up agent completed', { generatedMessages: result.followUpMessages?.length || 0, role: actor.role, userId: actor.id });
-    return result;
+    return {
+      ...result,
+      appliedContext: String(operatorContext || '').trim() || null,
+    };
   } catch (error) {
     logger.warn('Follow-up agent fallback used', { role: actor.role, userId: actor.id, message: error.message });
     const fallbackWhere = { status: 'Discharged' };
@@ -311,15 +317,19 @@ const runFollowUpAgent = async (actor = {}) => {
       patientId: adm.patient?.id,
       message: `Follow up with ${adm.patient?.firstName || 'patient'} about ${adm.reasonForAdmission || 'recent discharge'}.`,
     }));
-    return { dischargedPatients: admissions, followUpMessages };
+    return {
+      dischargedPatients: admissions,
+      followUpMessages,
+      appliedContext: String(operatorContext || '').trim() || null,
+    };
   }
 };
 
 /**
  * 3. Inventory Agent
  */
-const runInventoryAgent = async (actor = {}) => {
-  logger.info('Inventory agent started', { role: actor.role, userId: actor.id });
+const runInventoryAgent = async (actor = {}, operatorContext = '') => {
+  logger.info('Inventory agent started', { role: actor.role, userId: actor.id, hasContext: Boolean(String(operatorContext || '').trim()) });
   try {
     const workflow = new StateGraph(InventoryState);
 
@@ -354,7 +364,7 @@ const runInventoryAgent = async (actor = {}) => {
           return `${m.name} (Current: ${m.quantity}, Min: ${m.reorderLevel}, Last30DayUsage: ${monthlyUsage}, ProjectedNeed30Day: ${projected30Day})`;
         })
         .join(', ');
-      const prompt = `Viewer role: ${actor.role || 'User'}\n` + agentPrompts.inventoryPlan(medList, actor.role || 'User');
+      const prompt = `Viewer role: ${actor.role || 'User'}\nOperator context: ${String(operatorContext || '').trim() || 'None provided'}\n` + agentPrompts.inventoryPlan(medList, actor.role || 'User');
       const response = await invokeWithRetry(prompt, 'inventory');
       return { ...state, recommendations: response.content };
     });
@@ -366,7 +376,10 @@ const runInventoryAgent = async (actor = {}) => {
     const app = workflow.compile();
     const result = await app.invoke({});
     logger.info('Inventory agent completed', { lowStockCount: result.lowStock?.length || 0, role: actor.role, userId: actor.id });
-    return result;
+    return {
+      ...result,
+      appliedContext: String(operatorContext || '').trim() || null,
+    };
   } catch (error) {
     logger.warn('Inventory agent fallback used', { role: actor.role, userId: actor.id, message: error.message });
     const lowStock = await db.Medicine.findAll({
@@ -378,6 +391,7 @@ const runInventoryAgent = async (actor = {}) => {
       recommendations: lowStock.length === 0
         ? 'Stock levels are healthy.'
         : `Review ${lowStock.length} medicines that are at or below reorder level.`,
+      appliedContext: String(operatorContext || '').trim() || null,
     };
   }
 };
@@ -385,8 +399,8 @@ const runInventoryAgent = async (actor = {}) => {
 /**
  * 4. Billing Agent
  */
-const runBillingAgent = async (actor = {}) => {
-  logger.info('Billing agent started', { role: actor.role, userId: actor.id });
+const runBillingAgent = async (actor = {}, operatorContext = '') => {
+  logger.info('Billing agent started', { role: actor.role, userId: actor.id, hasContext: Boolean(String(operatorContext || '').trim()) });
   try {
     const workflow = new StateGraph(BillingState);
 
@@ -404,7 +418,7 @@ const runBillingAgent = async (actor = {}) => {
         .slice(0, 5)
         .map((bill) => `${bill.billNumber || bill.id}:$${parseFloat(bill.netAmount || 0).toFixed(2)}:${bill.patient?.firstName || 'Patient'}`)
         .join('; ');
-      const prompt = `Viewer role: ${actor.role || 'User'}\n` + agentPrompts.billingReminder(
+      const prompt = `Viewer role: ${actor.role || 'User'}\nOperator context: ${String(operatorContext || '').trim() || 'None provided'}\n` + agentPrompts.billingReminder(
         state.pendingBills.length,
         Number(totalPending.toFixed(2)),
         actor.role || 'User',
@@ -439,7 +453,10 @@ const runBillingAgent = async (actor = {}) => {
     const app = workflow.compile();
     const result = await app.invoke({});
     logger.info('Billing agent completed', { pendingBills: result.pendingBills?.length || 0, role: actor.role, userId: actor.id });
-    return result;
+    return {
+      ...result,
+      appliedContext: String(operatorContext || '').trim() || null,
+    };
   } catch (error) {
     logger.warn('Billing agent fallback used', { role: actor.role, userId: actor.id, message: error.message });
     const pendingBills = await db.Bill.findAll({
@@ -453,6 +470,7 @@ const runBillingAgent = async (actor = {}) => {
       billingInsights: pendingBills.length === 0
         ? 'No pending bills to review.'
         : `There are ${pendingBills.length} pending bills totaling $${totalPending.toFixed(2)}. Follow up with billing staff today.`,
+      appliedContext: String(operatorContext || '').trim() || null,
     };
   }
 };

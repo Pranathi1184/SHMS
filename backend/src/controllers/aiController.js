@@ -27,7 +27,7 @@ const pickPatientSnapshot = (patientRecord) => {
   };
 };
 
-const resolveChatbotContext = async (viewer, patientId, query) => {
+const resolveChatbotContext = async (viewer, patientId, query, clientContext = null) => {
   const base = {
     query,
     viewer: {
@@ -38,6 +38,7 @@ const resolveChatbotContext = async (viewer, patientId, query) => {
       email: viewer.email,
     },
     scope: 'general',
+    clientContext: clientContext || null,
   };
 
   if (viewer.role === 'Patient') {
@@ -165,12 +166,28 @@ const resolveChatbotContext = async (viewer, patientId, query) => {
 const getPatientSummary = async (req, res) => {
   try {
     const { patientId } = req.params;
-    
-    const patient = await db.Patient.findByPk(patientId, {
+    let effectivePatientId = patientId;
+
+    if (req.user.role === 'Patient') {
+      const linkedPatient = await db.Patient.findOne({ where: { email: req.user.email } });
+      if (!linkedPatient) {
+        return res.status(404).json({ status: 'error', message: 'Patient profile not found for this account' });
+      }
+      if (patientId !== 'me' && patientId !== linkedPatient.id) {
+        return res.status(403).json({ status: 'error', message: 'Forbidden - Access denied' });
+      }
+      effectivePatientId = linkedPatient.id;
+    }
+
+    const patient = await db.Patient.findByPk(effectivePatientId, {
       include: [
         { model: db.EHR, as: 'ehrRecords' },
         { model: db.LaboratoryTest, as: 'laboratoryTests' },
-        { model: db.Prescription, as: 'prescriptions' }
+        {
+          model: db.Prescription,
+          as: 'prescriptions',
+          include: [{ model: db.PrescriptionItem, as: 'items', include: [{ model: db.Medicine, as: 'medicine' }] }],
+        },
       ]
     });
 
@@ -210,6 +227,16 @@ const getReminderMessage = async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'Appointment not found' });
     }
 
+    if (req.user.role === 'Patient') {
+      const linkedPatient = await db.Patient.findOne({ where: { email: req.user.email } });
+      if (!linkedPatient) {
+        return res.status(404).json({ status: 'error', message: 'Patient profile not found for this account' });
+      }
+      if (appointment.patientId !== linkedPatient.id) {
+        return res.status(403).json({ status: 'error', message: 'Forbidden - Access denied' });
+      }
+    }
+
     const message = await aiService.generateAppointmentReminder(appointment);
     res.status(200).json({ status: 'success', data: { message } });
   } catch (error) {
@@ -219,14 +246,14 @@ const getReminderMessage = async (req, res) => {
 
 const handleChatbotQuery = async (req, res) => {
   try {
-    const { query, patientId } = req.body;
+    const { query, patientId, context } = req.body;
 
-    const context = await resolveChatbotContext(req.user, patientId, query);
-    if (!context) {
+    const resolvedContext = await resolveChatbotContext(req.user, patientId, query, context);
+    if (!resolvedContext) {
       return res.status(404).json({ status: 'error', message: 'Patient not found' });
     }
 
-    const response = await aiService.hospitalChatbot(query, context, req.user.role);
+    const response = await aiService.hospitalChatbot(query, resolvedContext, req.user.role);
     res.status(200).json({ status: 'success', data: { response } });
   } catch (error) {
     return sendServerError(res, 'process query', error);
@@ -237,12 +264,12 @@ const handleChatbotQueryGet = async (req, res) => {
   try {
     const { query, patientId } = req.query;
 
-    const context = await resolveChatbotContext(req.user, patientId, query);
-    if (!context) {
+    const resolvedContext = await resolveChatbotContext(req.user, patientId, query);
+    if (!resolvedContext) {
       return res.status(404).json({ status: 'error', message: 'Patient not found' });
     }
 
-    const response = await aiService.hospitalChatbot(query, context, req.user.role);
+    const response = await aiService.hospitalChatbot(query, resolvedContext, req.user.role);
     res.status(200).json({ status: 'success', data: { response } });
   } catch (error) {
     return sendServerError(res, 'process query', error);

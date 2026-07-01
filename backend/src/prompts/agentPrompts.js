@@ -1,13 +1,15 @@
 const agentPrompts = {
-  scheduling: (date, slots, actorRole = 'User') => `You are a hospital scheduling assistant.
+  scheduling: (date, slots, actorRole = 'User', operatorContext = '') => `You are a hospital scheduling assistant.
 Role: ${actorRole}
 Target date: ${date}
 Already booked slots: ${slots.join(', ') || 'none'}
+Operator context: ${operatorContext || 'None provided'}
 
 Task:
 - Suggest exactly 3 conflict-free 30-minute slots between 09:00 and 17:00.
 - Keep at least one buffer gap for urgent cases.
 - If there are not enough free slots, explain constraints briefly.
+- If operator context adds a preference or clinic note, incorporate it into slot reasoning.
 
 Output format (strict):
 1) HH:MM-HH:MM | reason

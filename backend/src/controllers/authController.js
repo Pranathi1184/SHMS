@@ -131,9 +131,7 @@ const login = async (req, res) => {
 
     if (!user) {
       const patientRecord = await db.Patient.findOne({ where: { email } });
-      const autoProvisionEnabled = process.env.AUTO_PROVISION_PATIENT_LOGIN
-        ? process.env.AUTO_PROVISION_PATIENT_LOGIN === 'true'
-        : process.env.NODE_ENV !== 'production';
+      const autoProvisionEnabled = process.env.AUTO_PROVISION_PATIENT_LOGIN === 'true';
       const bootstrapPassword = process.env.SEED_PATIENT_PASSWORD || 'patient123';
 
       if (patientRecord && autoProvisionEnabled && password === bootstrapPassword) {

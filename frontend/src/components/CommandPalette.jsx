@@ -13,11 +13,48 @@ import {
 import { Search, CorporateFare } from '@mui/icons-material';
 
 const sharedActions = [
-  { id: 'dashboard', label: 'Go to Dashboard', path: '/dashboard', keywords: 'home overview dashboard' },
-  { id: 'appointments', label: 'Book Appointment', path: '/appointments', keywords: 'appointment booking schedule' },
-  { id: 'find-patient', label: 'Find Patient', path: '/patients', keywords: 'patient search registry' },
-  { id: 'create-bill', label: 'Create Bill', path: '/billing', keywords: 'billing invoice payment bill' },
-  { id: 'doctors', label: 'Open Doctors Directory', path: '/doctors', keywords: 'doctor consultant clinician' },
+  {
+    id: 'dashboard',
+    label: 'Go to Dashboard',
+    path: '/dashboard',
+    keywords: 'home overview dashboard',
+    roles: ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Pharmacist', 'Billing Staff', 'Patient'],
+  },
+  {
+    id: 'appointments',
+    label: 'Book Appointment',
+    path: '/appointments',
+    keywords: 'appointment booking schedule',
+    roles: ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Pharmacist', 'Billing Staff', 'Patient'],
+  },
+  {
+    id: 'find-patient',
+    label: 'Find Patient',
+    path: '/patients',
+    keywords: 'patient search registry',
+    roles: ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Pharmacist', 'Billing Staff'],
+  },
+  {
+    id: 'create-bill',
+    label: 'Create Bill',
+    path: '/billing',
+    keywords: 'billing invoice payment bill',
+    roles: ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Billing Staff'],
+  },
+  {
+    id: 'doctors',
+    label: 'Open Doctors Directory',
+    path: '/doctors',
+    keywords: 'doctor consultant clinician',
+    roles: ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Patient'],
+  },
+  {
+    id: 'ehr-list',
+    label: 'Open EHR Registry',
+    path: '/ehr-list',
+    keywords: 'ehr registry medical records',
+    roles: ['Administrator', 'Doctor', 'Nurse', 'Lab Technician', 'Pharmacist'],
+  },
 ];
 
 const roleActions = {
@@ -52,7 +89,7 @@ const CommandPalette = ({ open, onClose, onNavigate, role }) => {
   const [query, setQuery] = useState('');
 
   const actions = useMemo(() => {
-    const scoped = [...sharedActions, ...(roleActions[role] || [])];
+    const scoped = [...sharedActions, ...(roleActions[role] || [])].filter((item) => !item.roles || item.roles.includes(role));
     const q = query.trim().toLowerCase();
     if (!q) return scoped;
     return scoped.filter((item) => `${item.label} ${item.keywords}`.toLowerCase().includes(q));

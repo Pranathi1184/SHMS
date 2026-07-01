@@ -5,6 +5,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
 const { findByPkOr404 } = require('../utils/controllerHelpers');
 
+const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+
 const createEHR = asyncHandler(async (req, res) => {
   const {
     patientId,
@@ -43,17 +45,21 @@ const createEHR = asyncHandler(async (req, res) => {
     ],
   });
 
-  await logAudit({
-    req,
-    action: 'CREATE',
-    entityType: 'EHR',
-    entityId: ehr.id,
-    after: {
-      patientId: ehr.patientId,
-      doctorId: ehr.doctorId,
-      diagnosis: ehr.diagnosis,
-    },
-  });
+  try {
+    await logAudit({
+      req,
+      action: 'CREATE',
+      entityType: 'EHR',
+      entityId: ehr.id,
+      after: {
+        patientId: ehr.patientId,
+        doctorId: ehr.doctorId,
+        diagnosis: ehr.diagnosis,
+      },
+    });
+  } catch (auditError) {
+    logger.warn('Post-create EHR audit log failed', { message: auditError.message });
+  }
 
   res.status(201).json({
     status: 'success',
@@ -63,12 +69,22 @@ const createEHR = asyncHandler(async (req, res) => {
 });
 
 const getEHRs = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
   const { patientId, doctorId, appointmentId } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
 
   let whereClause = {};
   if (patientId) whereClause.patientId = patientId;
-  if (doctorId) whereClause.doctorId = doctorId;
+  if (doctorId) {
+    if (isUuid(doctorId)) {
+      whereClause.doctorId = doctorId;
+    } else {
+      const doctor = await db.Doctor.findOne({ where: { licenseNumber: doctorId } });
+      if (!doctor) {
+        return res.status(404).json({ status: 'error', message: 'Doctor not found for provided license number' });
+      }
+      whereClause.doctorId = doctor.id;
+    }
+  }
   if (appointmentId) whereClause.appointmentId = appointmentId;
 
   const { count, rows: ehrs } = await db.EHR.findAndCountAll({
@@ -93,7 +109,9 @@ const getEHRs = asyncHandler(async (req, res) => {
 });
 
 const getEHRById = asyncHandler(async (req, res) => {
-  const ehr = await findByPkOr404(db.EHR, req.params.id, 'EHR record', {
+  const { id } = req.params;
+
+  const ehr = await findByPkOr404(db.EHR, id, 'EHR record', {
     include: [
       { model: db.Patient, as: 'patient' },
       { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
@@ -110,8 +128,10 @@ const getEHRById = asyncHandler(async (req, res) => {
 });
 
 const updateEHR = asyncHandler(async (req, res) => {
-  const ehr = await findByPkOr404(db.EHR, req.params.id, 'EHR record');
+  const { id } = req.params;
   const { diagnosis, symptoms, treatmentPlan, notes } = req.body;
+
+  const ehr = await findByPkOr404(db.EHR, id, 'EHR record');
 
   const beforeState = ehr.toJSON();
 
@@ -130,20 +150,24 @@ const updateEHR = asyncHandler(async (req, res) => {
     ],
   });
 
-  await logAudit({
-    req,
-    action: 'UPDATE',
-    entityType: 'EHR',
-    entityId: ehr.id,
-    before: {
-      diagnosis: beforeState.diagnosis,
-      symptoms: beforeState.symptoms,
-    },
-    after: {
-      diagnosis: ehr.diagnosis,
-      symptoms: ehr.symptoms,
-    },
-  });
+  try {
+    await logAudit({
+      req,
+      action: 'UPDATE',
+      entityType: 'EHR',
+      entityId: ehr.id,
+      before: {
+        diagnosis: beforeState.diagnosis,
+        symptoms: beforeState.symptoms,
+      },
+      after: {
+        diagnosis: ehr.diagnosis,
+        symptoms: ehr.symptoms,
+      },
+    });
+  } catch (auditError) {
+    logger.warn('Post-update EHR audit log failed', { message: auditError.message });
+  }
 
   res.status(200).json({
     status: 'success',
@@ -154,22 +178,27 @@ const updateEHR = asyncHandler(async (req, res) => {
 
 const deleteEHR = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   const ehr = await findByPkOr404(db.EHR, id, 'EHR record');
 
   const beforeState = ehr.toJSON();
   await ehr.destroy();
 
-  await logAudit({
-    req,
-    action: 'DELETE',
-    entityType: 'EHR',
-    entityId: id,
-    before: {
-      patientId: beforeState.patientId,
-      doctorId: beforeState.doctorId,
-      diagnosis: beforeState.diagnosis,
-    },
-  });
+  try {
+    await logAudit({
+      req,
+      action: 'DELETE',
+      entityType: 'EHR',
+      entityId: id,
+      before: {
+        patientId: beforeState.patientId,
+        doctorId: beforeState.doctorId,
+        diagnosis: beforeState.diagnosis,
+      },
+    });
+  } catch (auditError) {
+    logger.warn('Post-delete EHR audit log failed', { message: auditError.message });
+  }
 
   res.status(200).json({
     status: 'success',

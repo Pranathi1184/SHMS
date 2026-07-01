@@ -28,12 +28,18 @@ const uploadToS3 = async ({ buffer, key, contentType }) => {
   const client = new S3Client({ region: process.env.AWS_REGION });
   const bucket = process.env.AWS_S3_BUCKET;
 
-  await client.send(new PutObjectCommand({
-    Bucket: bucket,
-    Key: key,
-    Body: buffer,
-    ContentType: contentType,
-  }));
+  try {
+    await client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+    }));
+  } catch (error) {
+    const wrapped = new Error(`S3 upload failed for key "${key}": ${error.message}`);
+    wrapped.cause = error;
+    throw wrapped;
+  }
 
   return {
     storageProvider: 'S3',

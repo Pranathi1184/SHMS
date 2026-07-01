@@ -5,9 +5,13 @@ const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
 const { findByPkOr404 } = require('../utils/controllerHelpers');
 
+const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+
 // WARD CONTROLLERS
 const createWard = asyncHandler(async (req, res) => {
-  await findByPkOr404(db.Department, req.body.departmentId, 'Department');
+  const { departmentId } = req.body;
+
+  await findByPkOr404(db.Department, departmentId, 'Department');
 
   const ward = await db.Ward.create(req.body);
 
@@ -23,26 +27,24 @@ const createWard = asyncHandler(async (req, res) => {
 });
 
 const getWards = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
-
-  const { count, rows: wards } = await db.Ward.findAndCountAll({
-    include: [{ model: db.Department, as: 'department' }],
-    limit,
-    offset,
+  const wards = await db.Ward.findAll({
+    include: [
+      { model: db.Department, as: 'department' },
+      { model: db.Bed, as: 'beds' },
+    ],
     order: [['name', 'ASC']],
   });
 
   res.status(200).json({
     status: 'success',
-    data: {
-      wards,
-      pagination: buildPaginationResponse(count, page, limit),
-    },
+    data: { wards },
   });
 });
 
 const getWardById = asyncHandler(async (req, res) => {
-  const ward = await findByPkOr404(db.Ward, req.params.id, 'Ward', {
+  const { id } = req.params;
+
+  const ward = await findByPkOr404(db.Ward, id, 'Ward', {
     include: [
       { model: db.Department, as: 'department' },
       { model: db.Bed, as: 'beds' },
@@ -56,7 +58,9 @@ const getWardById = asyncHandler(async (req, res) => {
 });
 
 const updateWard = asyncHandler(async (req, res) => {
-  const ward = await findByPkOr404(db.Ward, req.params.id, 'Ward');
+  const { id } = req.params;
+
+  const ward = await findByPkOr404(db.Ward, id, 'Ward');
   await ward.update(req.body);
 
   const populatedWard = await db.Ward.findByPk(ward.id, {
@@ -72,6 +76,7 @@ const updateWard = asyncHandler(async (req, res) => {
 
 const deleteWard = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   const ward = await findByPkOr404(db.Ward, id, 'Ward');
 
   const bedCount = await db.Bed.count({ where: { wardId: id } });
@@ -89,55 +94,46 @@ const deleteWard = asyncHandler(async (req, res) => {
 
 // BED CONTROLLERS
 const createBed = asyncHandler(async (req, res) => {
-  await findByPkOr404(db.Ward, req.body.wardId, 'Ward');
+  const { wardId } = req.body;
 
-  try {
-    const bed = await db.Bed.create(req.body);
+  await findByPkOr404(db.Ward, wardId, 'Ward');
 
-    const populatedBed = await db.Bed.findByPk(bed.id, {
-      include: [{ model: db.Ward, as: 'ward' }],
-    });
+  const bed = await db.Bed.create(req.body);
 
-    res.status(201).json({
-      status: 'success',
-      message: 'Bed created successfully',
-      data: populatedBed,
-    });
-  } catch (error) {
-    if (error instanceof UniqueConstraintError) {
-      return res.status(400).json({ status: 'error', message: 'Bed number already exists in this ward' });
-    }
-    throw error;
-  }
+  const populatedBed = await db.Bed.findByPk(bed.id, {
+    include: [{ model: db.Ward, as: 'ward' }],
+  });
+
+  res.status(201).json({
+    status: 'success',
+    message: 'Bed created successfully',
+    data: populatedBed,
+  });
 });
 
 const getBeds = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
   const { wardId, status } = req.query;
 
   let whereClause = {};
   if (wardId) whereClause.wardId = wardId;
   if (status) whereClause.status = status;
 
-  const { count, rows: beds } = await db.Bed.findAndCountAll({
+  const beds = await db.Bed.findAll({
     where: whereClause,
     include: [{ model: db.Ward, as: 'ward' }],
-    limit,
-    offset,
     order: [['bedNumber', 'ASC']],
   });
 
   res.status(200).json({
     status: 'success',
-    data: {
-      beds,
-      pagination: buildPaginationResponse(count, page, limit),
-    },
+    data: { beds },
   });
 });
 
 const getBedById = asyncHandler(async (req, res) => {
-  const bed = await findByPkOr404(db.Bed, req.params.id, 'Bed', {
+  const { id } = req.params;
+
+  const bed = await findByPkOr404(db.Bed, id, 'Bed', {
     include: [{ model: db.Ward, as: 'ward' }],
   });
 
@@ -148,7 +144,9 @@ const getBedById = asyncHandler(async (req, res) => {
 });
 
 const updateBed = asyncHandler(async (req, res) => {
-  const bed = await findByPkOr404(db.Bed, req.params.id, 'Bed');
+  const { id } = req.params;
+
+  const bed = await findByPkOr404(db.Bed, id, 'Bed');
 
   try {
     await bed.update(req.body);
@@ -172,6 +170,7 @@ const updateBed = asyncHandler(async (req, res) => {
 
 const deleteBed = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   const bed = await findByPkOr404(db.Bed, id, 'Bed');
 
   const activeAdmission = await db.Admission.findOne({ where: { bedId: id, status: 'Admitted' } });
@@ -245,18 +244,30 @@ const createAdmission = asyncHandler(async (req, res) => {
       data: populatedAdmission,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     throw error;
   }
 });
 
 const getAdmissions = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
   const { patientId, doctorId, status } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
 
   let whereClause = {};
   if (patientId) whereClause.patientId = patientId;
-  if (doctorId) whereClause.doctorId = doctorId;
+  if (doctorId) {
+    if (isUuid(doctorId)) {
+      whereClause.doctorId = doctorId;
+    } else {
+      const doctor = await db.Doctor.findOne({ where: { licenseNumber: doctorId } });
+      if (!doctor) {
+        return res.status(404).json({ status: 'error', message: 'Doctor not found for provided license number' });
+      }
+      whereClause.doctorId = doctor.id;
+    }
+  }
   if (status) whereClause.status = status;
 
   const { count, rows: admissions } = await db.Admission.findAndCountAll({
@@ -281,7 +292,9 @@ const getAdmissions = asyncHandler(async (req, res) => {
 });
 
 const getAdmissionById = asyncHandler(async (req, res) => {
-  const admission = await findByPkOr404(db.Admission, req.params.id, 'Admission', {
+  const { id } = req.params;
+
+  const admission = await findByPkOr404(db.Admission, id, 'Admission', {
     include: [
       { model: db.Patient, as: 'patient' },
       { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
@@ -298,39 +311,57 @@ const getAdmissionById = asyncHandler(async (req, res) => {
 });
 
 const updateAdmission = asyncHandler(async (req, res) => {
-  const admission = await findByPkOr404(db.Admission, req.params.id, 'Admission');
-  const { bedId, ...updates } = req.body;
+  const transaction = await db.sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { bedId, ...updates } = req.body;
 
-  if (bedId && bedId !== admission.bedId) {
-    const newBed = await db.Bed.findByPk(bedId);
-    if (!newBed) {
-      return res.status(404).json({ status: 'error', message: 'New bed not found' });
+    const admission = await db.Admission.findByPk(id);
+    if (!admission) {
+      await transaction.rollback();
+      return res.status(404).json({ status: 'error', message: 'Admission not found' });
     }
-    if (newBed.status !== 'Available') {
-      return res.status(400).json({ status: 'error', message: 'New bed is not available' });
+
+    if (bedId && bedId !== admission.bedId) {
+      const newBed = await db.Bed.findByPk(bedId);
+      if (!newBed) {
+        await transaction.rollback();
+        return res.status(404).json({ status: 'error', message: 'New bed not found' });
+      }
+      if (newBed.status !== 'Available') {
+        await transaction.rollback();
+        return res.status(400).json({ status: 'error', message: 'New bed is not available' });
+      }
+      const oldBed = await db.Bed.findByPk(admission.bedId);
+      if (oldBed) {
+        await oldBed.update({ status: 'Available' }, { transaction });
+      }
+      await newBed.update({ status: 'Occupied' }, { transaction });
     }
-    const oldBed = await db.Bed.findByPk(admission.bedId);
-    if (oldBed) {
-      await oldBed.update({ status: 'Available' });
+
+    await admission.update({ ...updates, bedId }, { transaction });
+
+    await transaction.commit();
+
+    const populatedAdmission = await db.Admission.findByPk(admission.id, {
+      include: [
+        { model: db.Patient, as: 'patient' },
+        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+        { model: db.Bed, as: 'bed', include: [{ model: db.Ward, as: 'ward' }] },
+      ],
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Admission updated successfully',
+      data: populatedAdmission,
+    });
+  } catch (error) {
+    if (!transaction.finished) {
+      await transaction.rollback();
     }
-    await newBed.update({ status: 'Occupied' });
+    throw error;
   }
-
-  await admission.update({ ...updates, bedId });
-
-  const populatedAdmission = await db.Admission.findByPk(admission.id, {
-    include: [
-      { model: db.Patient, as: 'patient' },
-      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-      { model: db.Bed, as: 'bed', include: [{ model: db.Ward, as: 'ward' }] },
-    ],
-  });
-
-  res.status(200).json({
-    status: 'success',
-    message: 'Admission updated successfully',
-    data: populatedAdmission,
-  });
 });
 
 const dischargePatient = asyncHandler(async (req, res) => {
@@ -379,26 +410,44 @@ const dischargePatient = asyncHandler(async (req, res) => {
       data: populatedAdmission,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     throw error;
   }
 });
 
 const deleteAdmission = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const admission = await findByPkOr404(db.Admission, id, 'Admission');
+  const transaction = await db.sequelize.transaction();
+  try {
+    const { id } = req.params;
 
-  await admission.destroy();
+    const admission = await db.Admission.findByPk(id);
+    if (!admission) {
+      await transaction.rollback();
+      return res.status(404).json({ status: 'error', message: 'Admission not found' });
+    }
 
-  const bed = await db.Bed.findByPk(admission.bedId);
-  if (bed && bed.status === 'Occupied') {
-    await bed.update({ status: 'Available' });
+    const bedId = admission.bedId;
+    await admission.destroy({ transaction });
+
+    const bed = await db.Bed.findByPk(bedId);
+    if (bed && bed.status === 'Occupied') {
+      await bed.update({ status: 'Available' }, { transaction });
+    }
+
+    await transaction.commit();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Admission deleted successfully',
+    });
+  } catch (error) {
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
+    throw error;
   }
-
-  res.status(200).json({
-    status: 'success',
-    message: 'Admission deleted successfully',
-  });
 });
 
 module.exports = {
