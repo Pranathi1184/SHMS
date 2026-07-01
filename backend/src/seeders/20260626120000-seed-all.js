@@ -638,10 +638,10 @@ module.exports = {
     console.log('Seeding doctor schedules...');
     const schedules = [];
     const dayOptions = [
-      ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-      ['Monday', 'Wednesday', 'Friday'],
-      ['Tuesday', 'Thursday', 'Saturday'],
-      ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      [1, 2, 3, 4, 5],           // Monday-Friday
+      [1, 3, 5],                 // Monday, Wednesday, Friday
+      [2, 4, 6],                 // Tuesday, Thursday, Saturday
+      [1, 2, 3, 4, 5, 6],       // Monday-Saturday
     ];
     for (const doctor of createdDoctors) {
       schedules.push({
