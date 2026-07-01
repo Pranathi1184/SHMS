@@ -297,15 +297,24 @@ jobs:
             fi
             AVAILABLE_GB=$(df -Pk / | awk 'NR==2 {print int($4/1024/1024)}')
             echo "Available disk after cleanup: ${AVAILABLE_GB}G"
+            DEPLOY_SERVICES=""
             if [ "${AVAILABLE_GB:-0}" -lt 8 ]; then
-              echo "Insufficient disk space on host after cleanup (${AVAILABLE_GB}G). Increase root EBS volume or remove unused data."
-              exit 1
+              echo "Low disk (${AVAILABLE_GB}G). Deploying core services only: db backend frontend"
+              DEPLOY_SERVICES="db backend frontend"
             fi
 
             if [ "$COMPOSE_CMD" = "docker-compose" ]; then
-              sudo docker-compose up -d --build
+              if [ -n "$DEPLOY_SERVICES" ]; then
+                sudo docker-compose up -d --build $DEPLOY_SERVICES
+              else
+                sudo docker-compose up -d --build
+              fi
             else
-              sudo docker compose up -d --build
+              if [ -n "$DEPLOY_SERVICES" ]; then
+                sudo docker compose up -d --build $DEPLOY_SERVICES
+              else
+                sudo docker compose up -d --build
+              fi
             fi
 
       - name: Health Check (Development)
@@ -478,15 +487,24 @@ jobs:
             fi
             AVAILABLE_GB=$(df -Pk / | awk 'NR==2 {print int($4/1024/1024)}')
             echo "Available disk after cleanup: ${AVAILABLE_GB}G"
+            DEPLOY_SERVICES=""
             if [ "${AVAILABLE_GB:-0}" -lt 8 ]; then
-              echo "Insufficient disk space on host after cleanup (${AVAILABLE_GB}G). Increase root EBS volume or remove unused data."
-              exit 1
+              echo "Low disk (${AVAILABLE_GB}G). Deploying core services only: db backend frontend"
+              DEPLOY_SERVICES="db backend frontend"
             fi
 
             if [ "$COMPOSE_CMD" = "docker-compose" ]; then
-              sudo docker-compose up -d --build
+              if [ -n "$DEPLOY_SERVICES" ]; then
+                sudo docker-compose up -d --build $DEPLOY_SERVICES
+              else
+                sudo docker-compose up -d --build
+              fi
             else
-              sudo docker compose up -d --build
+              if [ -n "$DEPLOY_SERVICES" ]; then
+                sudo docker compose up -d --build $DEPLOY_SERVICES
+              else
+                sudo docker compose up -d --build
+              fi
             fi
             
       - name: Health Check (Production)
