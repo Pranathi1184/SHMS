@@ -286,6 +286,22 @@ jobs:
               cp "$APP_DIR/frontend/.env.example" "$APP_DIR/frontend/.env"
             fi
 
+            # Free disk before pulling/building large images (e.g., airflow/pyarrow layers)
+            sudo docker system df || true
+            sudo docker container prune -f || true
+            sudo docker image prune -af || true
+            sudo docker builder prune -af || true
+            sudo find /var/lib/docker/containers -type f -name "*-json.log" -size +50M -exec sudo truncate -s 0 {} \; || true
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get clean || true
+            fi
+            AVAILABLE_GB=$(df -Pk / | awk 'NR==2 {print int($4/1024/1024)}')
+            echo "Available disk after cleanup: ${AVAILABLE_GB}G"
+            if [ "${AVAILABLE_GB:-0}" -lt 8 ]; then
+              echo "Insufficient disk space on host after cleanup (${AVAILABLE_GB}G). Increase root EBS volume or remove unused data."
+              exit 1
+            fi
+
             if [ "$COMPOSE_CMD" = "docker-compose" ]; then
               sudo docker-compose up -d --build
             else
@@ -449,6 +465,22 @@ jobs:
 
             if [ ! -f "$APP_DIR/frontend/.env" ] && [ -f "$APP_DIR/frontend/.env.example" ]; then
               cp "$APP_DIR/frontend/.env.example" "$APP_DIR/frontend/.env"
+            fi
+
+            # Free disk before pulling/building large images (e.g., airflow/pyarrow layers)
+            sudo docker system df || true
+            sudo docker container prune -f || true
+            sudo docker image prune -af || true
+            sudo docker builder prune -af || true
+            sudo find /var/lib/docker/containers -type f -name "*-json.log" -size +50M -exec sudo truncate -s 0 {} \; || true
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get clean || true
+            fi
+            AVAILABLE_GB=$(df -Pk / | awk 'NR==2 {print int($4/1024/1024)}')
+            echo "Available disk after cleanup: ${AVAILABLE_GB}G"
+            if [ "${AVAILABLE_GB:-0}" -lt 8 ]; then
+              echo "Insufficient disk space on host after cleanup (${AVAILABLE_GB}G). Increase root EBS volume or remove unused data."
+              exit 1
             fi
 
             if [ "$COMPOSE_CMD" = "docker-compose" ]; then
