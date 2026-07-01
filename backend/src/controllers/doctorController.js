@@ -1,6 +1,5 @@
 const { Op, UniqueConstraintError } = require('sequelize');
 const db = require('../models');
-const logger = require('../utils/logger');
 const { hashPassword } = require('../utils/password');
 const { createNotificationsForUsers } = require('../services/notificationService');
 const asyncHandler = require('../utils/asyncHandler');

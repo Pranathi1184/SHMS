@@ -1,6 +1,8 @@
 const parsePagination = (query, defaults = {}) => {
-  const page = parseInt(query.page, 10) || defaults.page || 1;
-  const limit = parseInt(query.limit, 10) || defaults.limit || 10;
+  const rawPage = parseInt(query.page, 10);
+  const rawLimit = parseInt(query.limit, 10);
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : (defaults.page || 1);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : (defaults.limit || 10);
   const offset = (page - 1) * limit;
   return { page, limit, offset };
 };

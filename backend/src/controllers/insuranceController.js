@@ -1,4 +1,3 @@
-const logger = require('../utils/logger');
 const db = require('../models');
 const { UniqueConstraintError } = require('sequelize');
 const asyncHandler = require('../utils/asyncHandler');
