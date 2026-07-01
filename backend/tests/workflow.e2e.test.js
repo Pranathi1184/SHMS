@@ -25,6 +25,7 @@ describe('SHMS Workflow E2E Verification', () => {
   let workflowDoctorId;
   let workflowMedicineId;
   let workflowBedId;
+  let validAppointmentDate = '2027-12-31';
 
   const unique = Date.now();
 
@@ -110,6 +111,20 @@ describe('SHMS Workflow E2E Verification', () => {
     workflowDoctorId = doctor.id;
     workflowMedicineId = medicine.id;
     workflowBedId = bed.id;
+
+    // Determine a valid appointment date based on the doctor's schedule
+    const schedule = await db.DoctorSchedule.findOne({ where: { doctorId: doctor.id } });
+    const availableDays = schedule?.availableDays?.length ? schedule.availableDays : [1, 2, 3, 4, 5];
+    // Find the next future date that falls on an available day
+    const baseDate = new Date('2027-12-20');
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + i);
+      if (availableDays.includes(d.getUTCDay())) {
+        validAppointmentDate = d.toISOString().slice(0, 10);
+        break;
+      }
+    }
 
     adminToken = generateAccessToken({ id: adminUser.id, role: 'Administrator', email: adminUser.email });
     doctorToken = generateAccessToken({ id: doctor.user.id, role: 'Doctor', email: doctor.user.email });
@@ -198,7 +213,7 @@ describe('SHMS Workflow E2E Verification', () => {
       .send({
         patientId: createdPatientId,
         doctorId: workflowDoctorId,
-        appointmentDate: '2027-12-31',
+        appointmentDate: validAppointmentDate,
         startTime: '16:00',
         endTime: '16:30',
         notes: 'Workflow verification appointment',
