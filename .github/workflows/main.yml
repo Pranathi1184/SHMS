@@ -252,34 +252,34 @@ jobs:
             # Bootstrap env files for first-time hosts
             if [ ! -f "$APP_DIR/.env" ]; then
               AIRFLOW_ADMIN_PASSWORD="${AIRFLOW_ADMIN_PASSWORD:-$(rand_secret 16)}"
-              cat > "$APP_DIR/.env" <<EOF
-DB_USER=${DB_USER:-postgres}
-DB_PASSWORD=${DB_PASSWORD:-postgres}
-DB_NAME=${DB_NAME:-shms}
-NODE_ENV=${NODE_ENV:-development}
-AIRFLOW_ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
-EOF
+              {
+                echo "DB_USER=${DB_USER:-postgres}"
+                echo "DB_PASSWORD=${DB_PASSWORD:-postgres}"
+                echo "DB_NAME=${DB_NAME:-shms}"
+                echo "NODE_ENV=${NODE_ENV:-development}"
+                echo "AIRFLOW_ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}"
+              } > "$APP_DIR/.env"
             fi
 
             if [ ! -f "$APP_DIR/backend/.env" ]; then
               JWT_SECRET_VALUE="${JWT_SECRET:-$(rand_secret 32)}"
               JWT_REFRESH_SECRET_VALUE="${JWT_REFRESH_SECRET:-$(rand_secret 32)}"
-              cat > "$APP_DIR/backend/.env" <<EOF
-NODE_ENV=${NODE_ENV:-development}
-PORT=5000
-DB_HOST=db
-DB_PORT=5432
-DB_NAME=${DB_NAME:-shms}
-DB_USER=${DB_USER:-postgres}
-DB_PASSWORD=${DB_PASSWORD:-postgres}
-JWT_SECRET=${JWT_SECRET_VALUE}
-JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET_VALUE}
-JWT_EXPIRES_IN=1h
-JWT_REFRESH_EXPIRES_IN=7d
-CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost}
-AWS_S3_BUCKET=${AWS_S3_BUCKET:-}
-GROQ_API_KEY=${GROQ_API_KEY:-}
-EOF
+              {
+                echo "NODE_ENV=${NODE_ENV:-development}"
+                echo "PORT=5000"
+                echo "DB_HOST=db"
+                echo "DB_PORT=5432"
+                echo "DB_NAME=${DB_NAME:-shms}"
+                echo "DB_USER=${DB_USER:-postgres}"
+                echo "DB_PASSWORD=${DB_PASSWORD:-postgres}"
+                echo "JWT_SECRET=${JWT_SECRET_VALUE}"
+                echo "JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET_VALUE}"
+                echo "JWT_EXPIRES_IN=1h"
+                echo "JWT_REFRESH_EXPIRES_IN=7d"
+                echo "CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost}"
+                echo "AWS_S3_BUCKET=${AWS_S3_BUCKET:-}"
+                echo "GROQ_API_KEY=${GROQ_API_KEY:-}"
+              } > "$APP_DIR/backend/.env"
             fi
 
             if [ ! -f "$APP_DIR/frontend/.env" ] && [ -f "$APP_DIR/frontend/.env.example" ]; then
@@ -417,34 +417,34 @@ EOF
             # Bootstrap env files for first-time hosts
             if [ ! -f "$APP_DIR/.env" ]; then
               AIRFLOW_ADMIN_PASSWORD="${AIRFLOW_ADMIN_PASSWORD:-$(rand_secret 16)}"
-              cat > "$APP_DIR/.env" <<EOF
-DB_USER=${DB_USER:-postgres}
-DB_PASSWORD=${DB_PASSWORD:-postgres}
-DB_NAME=${DB_NAME:-shms}
-NODE_ENV=${NODE_ENV:-production}
-AIRFLOW_ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
-EOF
+              {
+                echo "DB_USER=${DB_USER:-postgres}"
+                echo "DB_PASSWORD=${DB_PASSWORD:-postgres}"
+                echo "DB_NAME=${DB_NAME:-shms}"
+                echo "NODE_ENV=${NODE_ENV:-production}"
+                echo "AIRFLOW_ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}"
+              } > "$APP_DIR/.env"
             fi
 
             if [ ! -f "$APP_DIR/backend/.env" ]; then
               JWT_SECRET_VALUE="${JWT_SECRET:-$(rand_secret 32)}"
               JWT_REFRESH_SECRET_VALUE="${JWT_REFRESH_SECRET:-$(rand_secret 32)}"
-              cat > "$APP_DIR/backend/.env" <<EOF
-NODE_ENV=${NODE_ENV:-production}
-PORT=5000
-DB_HOST=db
-DB_PORT=5432
-DB_NAME=${DB_NAME:-shms}
-DB_USER=${DB_USER:-postgres}
-DB_PASSWORD=${DB_PASSWORD:-postgres}
-JWT_SECRET=${JWT_SECRET_VALUE}
-JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET_VALUE}
-JWT_EXPIRES_IN=1h
-JWT_REFRESH_EXPIRES_IN=7d
-CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost}
-AWS_S3_BUCKET=${AWS_S3_BUCKET:-}
-GROQ_API_KEY=${GROQ_API_KEY:-}
-EOF
+              {
+                echo "NODE_ENV=${NODE_ENV:-production}"
+                echo "PORT=5000"
+                echo "DB_HOST=db"
+                echo "DB_PORT=5432"
+                echo "DB_NAME=${DB_NAME:-shms}"
+                echo "DB_USER=${DB_USER:-postgres}"
+                echo "DB_PASSWORD=${DB_PASSWORD:-postgres}"
+                echo "JWT_SECRET=${JWT_SECRET_VALUE}"
+                echo "JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET_VALUE}"
+                echo "JWT_EXPIRES_IN=1h"
+                echo "JWT_REFRESH_EXPIRES_IN=7d"
+                echo "CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost}"
+                echo "AWS_S3_BUCKET=${AWS_S3_BUCKET:-}"
+                echo "GROQ_API_KEY=${GROQ_API_KEY:-}"
+              } > "$APP_DIR/backend/.env"
             fi
 
             if [ ! -f "$APP_DIR/frontend/.env" ] && [ -f "$APP_DIR/frontend/.env.example" ]; then
