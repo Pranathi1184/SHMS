@@ -1,134 +1,86 @@
 const { Op } = require('sequelize');
-const logger = require('../utils/logger');
 const db = require('../models');
+const asyncHandler = require('../utils/asyncHandler');
+const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
+const { findByPkOr404, generateBillNumber } = require('../utils/controllerHelpers');
 
-const createMedicine = async (req, res) => {
-  try {
-    const medicine = await db.Medicine.create(req.body);
-    res.status(201).json({
-      status: 'success',
-      message: 'Medicine created successfully',
-      data: medicine,
-    });
-  } catch (error) {
-    logger.error('Create medicine error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+const createMedicine = asyncHandler(async (req, res) => {
+  const medicine = await db.Medicine.create(req.body);
+  res.status(201).json({
+    status: 'success',
+    message: 'Medicine created successfully',
+    data: medicine,
+  });
+});
+
+const getMedicines = asyncHandler(async (req, res) => {
+  const { search = '', lowStock } = req.query;
+  const { page, limit, offset } = parsePagination(req.query);
+
+  let whereClause = {};
+
+  if (search) {
+    whereClause[Op.or] = [
+      { name: { [Op.iLike]: `%${search}%` } },
+      { genericName: { [Op.iLike]: `%${search}%` } },
+    ];
   }
-};
 
-const getMedicines = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, search = '', lowStock } = req.query;
-    const offset = (page - 1) * limit;
-
-    let whereClause = {};
-
-    if (search) {
-      whereClause[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { genericName: { [Op.iLike]: `%${search}%` } },
-      ];
-    }
-
-    if (lowStock === 'true') {
-      whereClause.quantity = { [Op.lte]: db.sequelize.col('reorderLevel') };
-    }
-
-    const { count, rows: medicines } = await db.Medicine.findAndCountAll({
-      where: whereClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['name', 'ASC']],
-    });
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        medicines,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalItems: count,
-          totalPages: Math.ceil(count / limit),
-        },
-      },
-    });
-  } catch (error) {
-    logger.error('Get medicines error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  if (lowStock === 'true') {
+    whereClause.quantity = { [Op.lte]: db.sequelize.col('reorderLevel') };
   }
-};
 
-const getMedicineById = async (req, res) => {
-  try {
-    const { id } = req.params;
+  const { count, rows: medicines } = await db.Medicine.findAndCountAll({
+    where: whereClause,
+    limit,
+    offset,
+    order: [['name', 'ASC']],
+  });
 
-    const medicine = await db.Medicine.findByPk(id);
-    if (!medicine) {
-      return res.status(404).json({ status: 'error', message: 'Medicine not found' });
-    }
+  res.status(200).json({
+    status: 'success',
+    data: {
+      medicines,
+      pagination: buildPaginationResponse(count, page, limit),
+    },
+  });
+});
 
-    res.status(200).json({
-      status: 'success',
-      data: medicine,
-    });
-  } catch (error) {
-    logger.error('Get medicine by id error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+const getMedicineById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
-const updateMedicine = async (req, res) => {
-  try {
-    const { id } = req.params;
+  const medicine = await findByPkOr404(db.Medicine, id, 'Medicine');
 
-    const medicine = await db.Medicine.findByPk(id);
-    if (!medicine) {
-      return res.status(404).json({ status: 'error', message: 'Medicine not found' });
-    }
+  res.status(200).json({
+    status: 'success',
+    data: medicine,
+  });
+});
 
-    await medicine.update(req.body);
+const updateMedicine = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
-    res.status(200).json({
-      status: 'success',
-      message: 'Medicine updated successfully',
-      data: medicine,
-    });
-  } catch (error) {
-    logger.error('Update medicine error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+  const medicine = await findByPkOr404(db.Medicine, id, 'Medicine');
+  await medicine.update(req.body);
 
-const deleteMedicine = async (req, res) => {
-  try {
-    const { id } = req.params;
+  res.status(200).json({
+    status: 'success',
+    message: 'Medicine updated successfully',
+    data: medicine,
+  });
+});
 
-    const medicine = await db.Medicine.findByPk(id);
-    if (!medicine) {
-      return res.status(404).json({ status: 'error', message: 'Medicine not found' });
-    }
+const deleteMedicine = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
-    await medicine.destroy();
+  const medicine = await findByPkOr404(db.Medicine, id, 'Medicine');
+  await medicine.destroy();
 
-    res.status(200).json({
-      status: 'success',
-      message: 'Medicine deleted successfully',
-    });
-  } catch (error) {
-    logger.error('Delete medicine error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
-
-const generatePharmacyBillNumber = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  const rand = Math.floor(1000 + Math.random() * 9000);
-  return `PHARM-${y}${m}${d}-${rand}`;
-};
+  res.status(200).json({
+    status: 'success',
+    message: 'Medicine deleted successfully',
+  });
+});
 
 const resolveFefoBatches = async (item, tx) => {
   if (item.medicineId) {
@@ -154,7 +106,7 @@ const resolveFefoBatches = async (item, tx) => {
   });
 };
 
-const createPharmacySale = async (req, res) => {
+const createPharmacySale = asyncHandler(async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
     const { patientId, items, notes } = req.body;
@@ -212,7 +164,7 @@ const createPharmacySale = async (req, res) => {
 
     const bill = await db.Bill.create({
       patientId,
-      billNumber: generatePharmacyBillNumber(),
+      billNumber: generateBillNumber('PHARM'),
       billDate: new Date(),
       totalAmount: gross,
       discount: 0,
@@ -251,10 +203,9 @@ const createPharmacySale = async (req, res) => {
     if (!transaction.finished) {
       await transaction.rollback();
     }
-    logger.error('Create pharmacy sale error:', error);
-    return res.status(500).json({ status: 'error', message: 'Internal server error' });
+    throw error;
   }
-};
+});
 
 module.exports = {
   createMedicine,

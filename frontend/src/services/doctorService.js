@@ -1,14 +1,11 @@
 import api from './api';
+import createCrudService from './createCrudService';
+
+const crud = createCrudService('/doctors');
 
 export const doctorService = {
-  getDoctors: async (params = {}) => {
-    const response = await api.get('/doctors', { params });
-    return response.data;
-  },
-  createDoctor: async (data) => {
-    const response = await api.post('/doctors', data);
-    return response.data;
-  },
+  getDoctors: crud.getAll,
+  createDoctor: crud.create,
   updateDoctorAvailability: async (id, data) => {
     const response = await api.put(`/doctors/${id}/availability`, data);
     return response.data;

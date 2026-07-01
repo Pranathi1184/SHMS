@@ -1,18 +1,16 @@
-const logger = require('../utils/logger');
 const db = require('../models');
 const { UniqueConstraintError } = require('sequelize');
+const asyncHandler = require('../utils/asyncHandler');
+const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
+const { findByPkOr404 } = require('../utils/controllerHelpers');
 
-const createInsurance = async (req, res) => {
+const createInsurance = asyncHandler(async (req, res) => {
+  const { patientId } = req.body;
+
+  await findByPkOr404(db.Patient, patientId, 'Patient');
+
   try {
-    const { patientId } = req.body;
-
-    const patient = await db.Patient.findByPk(patientId);
-    if (!patient) {
-      return res.status(404).json({ status: 'error', message: 'Patient not found' });
-    }
-
     const insurance = await db.Insurance.create(req.body);
-
     res.status(201).json({
       status: 'success',
       message: 'Insurance created successfully',
@@ -22,116 +20,77 @@ const createInsurance = async (req, res) => {
     if (error instanceof UniqueConstraintError) {
       return res.status(400).json({ status: 'error', message: 'Policy number already exists' });
     }
-    logger.error('Create insurance error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+    throw error;
   }
-};
+});
 
-const getInsurance = async (req, res) => {
+const getInsurance = asyncHandler(async (req, res) => {
+  const { page, limit, offset } = parsePagination(req.query);
+  const { patientId } = req.query;
+
+  let whereClause = {};
+  if (patientId) whereClause.patientId = patientId;
+
+  const { count, rows: insuranceRecords } = await db.Insurance.findAndCountAll({
+    where: whereClause,
+    include: [
+      { model: db.Patient, as: 'patient' },
+    ],
+    limit,
+    offset,
+    order: [['createdAt', 'DESC']],
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      insuranceRecords,
+      pagination: buildPaginationResponse(count, page, limit),
+    },
+  });
+});
+
+const getInsuranceById = asyncHandler(async (req, res) => {
+  const insurance = await findByPkOr404(db.Insurance, req.params.id, 'Insurance', {
+    include: [
+      { model: db.Patient, as: 'patient' },
+    ],
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: insurance,
+  });
+});
+
+const updateInsurance = asyncHandler(async (req, res) => {
+  const insurance = await findByPkOr404(db.Insurance, req.params.id, 'Insurance');
+
   try {
-    const { page = 1, limit = 10, patientId } = req.query;
-    const offset = (page - 1) * limit;
-
-    let whereClause = {};
-    if (patientId) whereClause.patientId = patientId;
-
-    const { count, rows: insuranceRecords } = await db.Insurance.findAndCountAll({
-      where: whereClause,
-      include: [
-        { model: db.Patient, as: 'patient' },
-      ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['createdAt', 'DESC']],
-    });
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        insuranceRecords,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalItems: count,
-          totalPages: Math.ceil(count / limit),
-        },
-      },
-    });
-  } catch (error) {
-    logger.error('Get insurance error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
-
-const getInsuranceById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const insurance = await db.Insurance.findByPk(id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-      ],
-    });
-
-    if (!insurance) {
-      return res.status(404).json({ status: 'error', message: 'Insurance not found' });
-    }
-
-    res.status(200).json({
-      status: 'success',
-      data: insurance,
-    });
-  } catch (error) {
-    logger.error('Get insurance by id error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
-
-const updateInsurance = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const insurance = await db.Insurance.findByPk(id);
-    if (!insurance) {
-      return res.status(404).json({ status: 'error', message: 'Insurance not found' });
-    }
-
     await insurance.update(req.body);
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Insurance updated successfully',
-      data: insurance,
-    });
   } catch (error) {
     if (error instanceof UniqueConstraintError) {
       return res.status(400).json({ status: 'error', message: 'Policy number already exists' });
     }
-    logger.error('Update insurance error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+    throw error;
   }
-};
 
-const deleteInsurance = async (req, res) => {
-  try {
-    const { id } = req.params;
+  res.status(200).json({
+    status: 'success',
+    message: 'Insurance updated successfully',
+    data: insurance,
+  });
+});
 
-    const insurance = await db.Insurance.findByPk(id);
-    if (!insurance) {
-      return res.status(404).json({ status: 'error', message: 'Insurance not found' });
-    }
+const deleteInsurance = asyncHandler(async (req, res) => {
+  const insurance = await findByPkOr404(db.Insurance, req.params.id, 'Insurance');
+  await insurance.destroy();
 
-    await insurance.destroy();
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Insurance deleted successfully',
-    });
-  } catch (error) {
-    logger.error('Delete insurance error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+  res.status(200).json({
+    status: 'success',
+    message: 'Insurance deleted successfully',
+  });
+});
 
 module.exports = {
   createInsurance,

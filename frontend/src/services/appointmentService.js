@@ -1,4 +1,7 @@
 import api from './api';
+import createCrudService from './createCrudService';
+
+const crud = createCrudService('/appointments');
 
 export const appointmentService = {
   checkAvailability: async (params) => {
@@ -17,22 +20,10 @@ export const appointmentService = {
     const response = await api.get('/appointments/pre-visit-readiness', { params });
     return response.data;
   },
-  createAppointment: async (data) => {
-    const response = await api.post('/appointments', data);
-    return response.data;
-  },
-  getAppointments: async (params = {}) => {
-    const response = await api.get('/appointments', { params });
-    return response.data;
-  },
-  getAppointmentById: async (id) => {
-    const response = await api.get(`/appointments/${id}`);
-    return response.data;
-  },
-  updateAppointment: async (id, data) => {
-    const response = await api.put(`/appointments/${id}`, data);
-    return response.data;
-  },
+  createAppointment: crud.create,
+  getAppointments: crud.getAll,
+  getAppointmentById: crud.getById,
+  updateAppointment: crud.update,
   cancelAppointment: async (id) => {
     const response = await api.put(`/appointments/${id}/cancel`);
     return response.data;
