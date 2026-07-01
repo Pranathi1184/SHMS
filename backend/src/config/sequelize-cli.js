@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { resolveDatabaseUrl } = require('../utils/databaseUrl');
 
 const makeConfig = (dbNameFallback) => {
