@@ -68,6 +68,7 @@ Claim.init(
     sequelize,
     modelName: 'Claim',
     tableName: 'claims',
+    paranoid: true,
     indexes: [
       { fields: ['status'] },
       { fields: ['patient_id'] },

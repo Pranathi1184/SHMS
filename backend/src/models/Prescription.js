@@ -62,6 +62,7 @@ Prescription.init(
     sequelize,
     modelName: 'Prescription',
     tableName: 'prescriptions',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
       { fields: ['doctor_id'] },

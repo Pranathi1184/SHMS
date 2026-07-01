@@ -247,9 +247,33 @@ const getMe = async (req, res) => {
   }
 };
 
+const logout = async (req, res) => {
+  try {
+    const token = req.token;
+    const decoded = verifyAccessToken(token);
+
+    // Add token to blacklist with expiry
+    const expiresAt = new Date(decoded.exp * 1000);
+    await db.TokenBlacklist.create({
+      token,
+      userId: req.user.id,
+      expiresAt,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    logger.error('Logout error:', error);
+    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   register,
   login,
   refreshToken,
   getMe,
+  logout,
 };

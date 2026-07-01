@@ -11,6 +11,15 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = verifyAccessToken(token);
+
+    // Check token blacklist
+    if (db.TokenBlacklist) {
+      const blacklisted = await db.TokenBlacklist.findOne({ where: { token } });
+      if (blacklisted) {
+        return res.status(401).json({ status: 'error', message: 'Token has been revoked' });
+      }
+    }
+
     const user = await db.User.findByPk(decoded.id, {
       attributes: { exclude: ['password'] },
     });
@@ -20,6 +29,7 @@ const authenticateToken = async (req, res, next) => {
     }
 
     req.user = user;
+    req.token = token;
     next();
   } catch (error) {
     return res.status(403).json({ status: 'error', message: 'Invalid or expired token' });

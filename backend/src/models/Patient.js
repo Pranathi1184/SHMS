@@ -57,6 +57,7 @@ Patient.init(
     sequelize,
     modelName: 'Patient',
     tableName: 'patients',
+    paranoid: true,
     indexes: [
       { unique: true, fields: ['email'] },
       { fields: ['phone'] },

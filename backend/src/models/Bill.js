@@ -78,6 +78,7 @@ Bill.init(
     sequelize,
     modelName: 'Bill',
     tableName: 'bills',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
       { unique: true, fields: ['bill_number'] },

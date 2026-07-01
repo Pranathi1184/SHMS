@@ -50,6 +50,7 @@ Insurance.init(
     sequelize,
     modelName: 'Insurance',
     tableName: 'insurance',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
       { unique: true, fields: ['policy_number'] },
