@@ -1,5 +1,4 @@
 const { Op } = require('sequelize');
-const logger = require('../utils/logger');
 const db = require('../models');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
