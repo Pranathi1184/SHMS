@@ -1,0 +1,16 @@
+# Default code owners
+* @Pranathi1184
+
+# Backend
+/backend/ @Pranathi1184
+
+# Frontend
+/frontend/ @Pranathi1184
+
+# ETL Pipeline
+/etl/ @Pranathi1184
+
+# Infrastructure
+/infrastructure/ @Pranathi1184
+/.github/ @Pranathi1184
+/docker-compose.yml @Pranathi1184

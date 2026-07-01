@@ -62,6 +62,7 @@ EHR.init(
     sequelize,
     modelName: 'EHR',
     tableName: 'ehr',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
       { fields: ['doctor_id'] },

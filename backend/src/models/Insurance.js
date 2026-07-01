@@ -26,7 +26,6 @@ Insurance.init(
     policyNumber: {
       type: DataTypes.STRING(100),
       allowNull: false,
-      unique: true,
     },
     policyHolderName: {
       type: DataTypes.STRING(255),
@@ -50,9 +49,10 @@ Insurance.init(
     sequelize,
     modelName: 'Insurance',
     tableName: 'insurance',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
-      { unique: true, fields: ['policy_number'] },
+      { fields: ['policy_number'] },
     ],
   }
 );

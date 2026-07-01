@@ -4,9 +4,12 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const path = require('path');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger');
 const db = require('./models');
 const logger = require('./utils/logger');
 const { AppError } = require('./utils/errors');
+const { idempotencyCheck } = require('./middlewares/idempotency');
 const authRoutes = require('./routes/authRoutes');
 const departmentRoutes = require('./routes/departmentRoutes');
 const doctorRoutes = require('./routes/doctorRoutes');
@@ -87,6 +90,20 @@ const authLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);
+
+// Swagger API Documentation (disabled in production)
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.get('/api-docs.json', (req, res) => res.json(swaggerSpec));
+}
+
+// Idempotency middleware for write operations
+app.use('/api/', (req, res, next) => {
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    return idempotencyCheck(req, res, next);
+  }
+  next();
+});
 
 // Routes
 app.use('/api/auth', authRoutes);

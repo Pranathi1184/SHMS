@@ -61,6 +61,7 @@ Appointment.init(
     sequelize,
     modelName: 'Appointment',
     tableName: 'appointments',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
       { fields: ['doctor_id'] },

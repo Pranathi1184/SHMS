@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { Box, CircularProgress, CssBaseline } from '@mui/material';
 import { AuthProvider } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import MainLayout from './components/MainLayout';
 
@@ -122,6 +123,7 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <NotificationProvider>
       <AuthProvider>
         <Router>
           <Suspense fallback={loadingFallback}>
@@ -265,6 +267,7 @@ function App() {
           </Suspense>
         </Router>
       </AuthProvider>
+      </NotificationProvider>
     </ThemeProvider>
   );
 }

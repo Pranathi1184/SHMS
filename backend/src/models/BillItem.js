@@ -43,6 +43,7 @@ BillItem.init(
     sequelize,
     modelName: 'BillItem',
     tableName: 'bill_items',
+    paranoid: true,
     indexes: [
       { fields: ['bill_id'] },
     ],

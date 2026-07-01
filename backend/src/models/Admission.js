@@ -77,6 +77,7 @@ Admission.init(
     sequelize,
     modelName: 'Admission',
     tableName: 'admissions',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
       { fields: ['doctor_id'] },

@@ -25,6 +25,7 @@ const Claim = require('./Claim');
 const DischargePathway = require('./DischargePathway');
 const CommunicationLog = require('./CommunicationLog');
 const PatientDocument = require('./PatientDocument');
+const TokenBlacklist = require('./TokenBlacklist');
 const NoShowPrediction = require('./NoShowPrediction')(sequelize, DataTypes);
 const DoctorLoadForecast = require('./DoctorLoadForecast')(sequelize, DataTypes);
 const MedicineDemandForecast = require('./MedicineDemandForecast')(sequelize, DataTypes);
@@ -58,6 +59,7 @@ const db = {
   DischargePathway,
   CommunicationLog,
   PatientDocument,
+  TokenBlacklist,
   NoShowPrediction,
   DoctorLoadForecast,
   MedicineDemandForecast,

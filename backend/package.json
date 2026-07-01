@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "set DB_NAME=postgres&& set TEST_DB_NAME=postgres&& jest"
+    "test": "set DB_NAME=postgres&& set TEST_DB_NAME=postgres&& jest",
+    "lint": "echo \"No linter configured yet - add eslint\""
   },
   "keywords": [],
   "author": "",
@@ -31,7 +32,10 @@
     "openai": "^4.60.0",
     "pg": "^8.22.0",
     "sequelize": "^6.37.8",
-    "winston": "^3.19.0"
+    "winston": "^3.19.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "json2csv": "^5.0.7"
   },
   "devDependencies": {
     "jest": "^30.4.2",

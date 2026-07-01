@@ -23,7 +23,6 @@ Bill.init(
     billNumber: {
       type: DataTypes.STRING(100),
       allowNull: false,
-      unique: true,
     },
     billDate: {
       type: DataTypes.DATE,
@@ -78,9 +77,10 @@ Bill.init(
     sequelize,
     modelName: 'Bill',
     tableName: 'bills',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
-      { unique: true, fields: ['bill_number'] },
+      { fields: ['bill_number'] },
       { fields: ['payment_status'] },
       { fields: ['bill_date'] },
     ],

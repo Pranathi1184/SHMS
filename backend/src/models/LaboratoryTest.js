@@ -77,6 +77,7 @@ LaboratoryTest.init(
     sequelize,
     modelName: 'LaboratoryTest',
     tableName: 'laboratory_tests',
+    paranoid: true,
     indexes: [
       { fields: ['patient_id'] },
       { fields: ['doctor_id'] },

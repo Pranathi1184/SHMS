@@ -39,4 +39,18 @@ router.get(
   reportController.getInventoryAlerts
 );
 
+router.get(
+  '/export/:type',
+  authenticateToken,
+  authorizeRoles('Administrator', 'Billing Staff'),
+  reportController.exportReportCSV
+);
+
+router.get(
+  '/reconciliation',
+  authenticateToken,
+  authorizeRoles('Administrator'),
+  reportController.runDataReconciliation
+);
+
 module.exports = router;
