@@ -1,8 +1,11 @@
 const logger = require('../utils/logger');
 const db = require('../models');
 const { UniqueConstraintError } = require('sequelize');
+const asyncHandler = require('../utils/asyncHandler');
+const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
+const { findByPkOr404 } = require('../utils/controllerHelpers');
 
-const createDepartment = async (req, res) => {
+const createDepartment = asyncHandler(async (req, res) => {
   try {
     const department = await db.Department.create(req.body);
     res.status(201).json({
@@ -14,122 +17,84 @@ const createDepartment = async (req, res) => {
     if (error instanceof UniqueConstraintError) {
       return res.status(400).json({ status: 'error', message: 'Department name already exists' });
     }
-    logger.error('Create department error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+    throw error;
   }
-};
+});
 
-const getDepartments = async (req, res) => {
+const getDepartments = asyncHandler(async (req, res) => {
+  const { page, limit, offset } = parsePagination(req.query);
+
+  const { count, rows: departments } = await db.Department.findAndCountAll({
+    limit,
+    offset,
+    order: [['name', 'ASC']],
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      departments,
+      pagination: buildPaginationResponse(count, page, limit),
+    },
+  });
+});
+
+const getDepartmentById = asyncHandler(async (req, res) => {
+  const department = await findByPkOr404(db.Department, req.params.id, 'Department', {
+    include: [
+      { model: db.Doctor, as: 'doctors', include: [{ model: db.User, as: 'user' }] },
+      { model: db.Ward, as: 'wards' },
+    ],
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: department,
+  });
+});
+
+const updateDepartment = asyncHandler(async (req, res) => {
+  const department = await findByPkOr404(db.Department, req.params.id, 'Department');
+
   try {
-    const { page = 1, limit = 10 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const { count, rows: departments } = await db.Department.findAndCountAll({
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['name', 'ASC']],
-    });
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        departments,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalItems: count,
-          totalPages: Math.ceil(count / limit),
-        },
-      },
-    });
-  } catch (error) {
-    logger.error('Get departments error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
-
-const getDepartmentById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const department = await db.Department.findByPk(id, {
-      include: [
-        { model: db.Doctor, as: 'doctors', include: [{ model: db.User, as: 'user' }] },
-        { model: db.Ward, as: 'wards' },
-      ],
-    });
-
-    if (!department) {
-      return res.status(404).json({ status: 'error', message: 'Department not found' });
-    }
-
-    res.status(200).json({
-      status: 'success',
-      data: department,
-    });
-  } catch (error) {
-    logger.error('Get department by id error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
-
-const updateDepartment = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const department = await db.Department.findByPk(id);
-    if (!department) {
-      return res.status(404).json({ status: 'error', message: 'Department not found' });
-    }
-
     await department.update(req.body);
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Department updated successfully',
-      data: department,
-    });
   } catch (error) {
     if (error instanceof UniqueConstraintError) {
       return res.status(400).json({ status: 'error', message: 'Department name already exists' });
     }
-    logger.error('Update department error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+    throw error;
   }
-};
 
-const deleteDepartment = async (req, res) => {
-  try {
-    const { id } = req.params;
+  res.status(200).json({
+    status: 'success',
+    message: 'Department updated successfully',
+    data: department,
+  });
+});
 
-    const department = await db.Department.findByPk(id);
-    if (!department) {
-      return res.status(404).json({ status: 'error', message: 'Department not found' });
-    }
+const deleteDepartment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const department = await findByPkOr404(db.Department, id, 'Department');
 
-    const [doctorCount, wardCount] = await Promise.all([
-      db.Doctor.count({ where: { departmentId: id } }),
-      db.Ward.count({ where: { departmentId: id } }),
-    ]);
+  const [doctorCount, wardCount] = await Promise.all([
+    db.Doctor.count({ where: { departmentId: id } }),
+    db.Ward.count({ where: { departmentId: id } }),
+  ]);
 
-    if (doctorCount > 0 || wardCount > 0) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Department cannot be deleted while doctors or wards are assigned',
-      });
-    }
-
-    await department.destroy();
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Department deleted successfully',
+  if (doctorCount > 0 || wardCount > 0) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Department cannot be deleted while doctors or wards are assigned',
     });
-  } catch (error) {
-    logger.error('Delete department error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
-};
+
+  await department.destroy();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Department deleted successfully',
+  });
+});
 
 module.exports = {
   createDepartment,

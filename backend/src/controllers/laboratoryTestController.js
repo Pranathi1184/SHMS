@@ -1,230 +1,168 @@
 const logger = require('../utils/logger');
 const db = require('../models');
 const aiService = require('../services/aiService');
+const asyncHandler = require('../utils/asyncHandler');
+const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
+const { findByPkOr404 } = require('../utils/controllerHelpers');
 
-const createLabTest = async (req, res) => {
-  try {
-    const {
-      patientId,
-      doctorId,
-      testName,
-      testCode,
-      notes,
-    } = req.body;
+const createLabTest = asyncHandler(async (req, res) => {
+  const {
+    patientId,
+    doctorId,
+    testName,
+    testCode,
+    notes,
+  } = req.body;
 
-    const patient = await db.Patient.findByPk(patientId);
-    if (!patient) {
-      return res.status(404).json({ status: 'error', message: 'Patient not found' });
-    }
+  await findByPkOr404(db.Patient, patientId, 'Patient');
+  await findByPkOr404(db.Doctor, doctorId, 'Doctor');
 
-    const doctor = await db.Doctor.findByPk(doctorId);
-    if (!doctor) {
-      return res.status(404).json({ status: 'error', message: 'Doctor not found' });
-    }
+  const labTest = await db.LaboratoryTest.create({
+    patientId,
+    doctorId,
+    testName,
+    testCode,
+    notes,
+    orderedBy: req.user.id,
+  });
 
-    const labTest = await db.LaboratoryTest.create({
-      patientId,
-      doctorId,
-      testName,
-      testCode,
-      notes,
-      orderedBy: req.user.id,
-    });
+  const populatedLabTest = await db.LaboratoryTest.findByPk(labTest.id, {
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
+    ],
+  });
 
-    const populatedLabTest = await db.LaboratoryTest.findByPk(labTest.id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
-      ],
-    });
+  res.status(201).json({
+    status: 'success',
+    message: 'Lab test ordered successfully',
+    data: populatedLabTest,
+  });
+});
 
-    res.status(201).json({
-      status: 'success',
-      message: 'Lab test ordered successfully',
-      data: populatedLabTest,
-    });
-  } catch (error) {
-    logger.error('Create lab test error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+const getLabTests = asyncHandler(async (req, res) => {
+  const { page, limit, offset } = parsePagination(req.query);
+  const { patientId, doctorId, status } = req.query;
+
+  let whereClause = {};
+  if (patientId) whereClause.patientId = patientId;
+  if (doctorId) whereClause.doctorId = doctorId;
+  if (status) whereClause.status = status;
+
+  const { count, rows: labTests } = await db.LaboratoryTest.findAndCountAll({
+    where: whereClause,
+    limit,
+    offset,
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
+      { model: db.User, as: 'performedByUser', attributes: { exclude: ['password'] } },
+    ],
+    order: [['orderDate', 'DESC']],
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      labTests,
+      pagination: buildPaginationResponse(count, page, limit),
+    },
+  });
+});
+
+const getLabTestById = asyncHandler(async (req, res) => {
+  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test', {
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
+      { model: db.User, as: 'performedByUser', attributes: { exclude: ['password'] } },
+    ],
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: labTest,
+  });
+});
+
+const updateLabTest = asyncHandler(async (req, res) => {
+  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test');
+  const { status, results, notes } = req.body;
+
+  const updateData = {
+    status,
+    results,
+    notes,
+  };
+
+  if (status === 'Sample Collected' || status === 'In Progress' || status === 'Completed') {
+    updateData.performedBy = req.user.id;
   }
-};
 
-const getLabTests = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, patientId, doctorId, status } = req.query;
-    const offset = (page - 1) * limit;
-
-    let whereClause = {};
-    if (patientId) whereClause.patientId = patientId;
-    if (doctorId) whereClause.doctorId = doctorId;
-    if (status) whereClause.status = status;
-
-    const { count, rows: labTests } = await db.LaboratoryTest.findAndCountAll({
-      where: whereClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
-        { model: db.User, as: 'performedByUser', attributes: { exclude: ['password'] } },
-      ],
-      order: [['orderDate', 'DESC']],
-    });
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        labTests,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalItems: count,
-          totalPages: Math.ceil(count / limit),
-        },
-      },
-    });
-  } catch (error) {
-    logger.error('Get lab tests error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  if (status === 'Completed') {
+    updateData.resultDate = new Date();
   }
-};
 
-const getLabTestById = async (req, res) => {
-  try {
-    const { id } = req.params;
+  await labTest.update(updateData);
 
-    const labTest = await db.LaboratoryTest.findByPk(id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
-        { model: db.User, as: 'performedByUser', attributes: { exclude: ['password'] } },
-      ],
-    });
+  const populatedLabTest = await db.LaboratoryTest.findByPk(labTest.id, {
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
+      { model: db.User, as: 'performedByUser', attributes: { exclude: ['password'] } },
+    ],
+  });
 
-    if (!labTest) {
-      return res.status(404).json({ status: 'error', message: 'Lab test not found' });
-    }
+  res.status(200).json({
+    status: 'success',
+    message: 'Lab test updated successfully',
+    data: populatedLabTest,
+  });
+});
 
-    res.status(200).json({
-      status: 'success',
-      data: labTest,
-    });
-  } catch (error) {
-    logger.error('Get lab test by id error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+const deleteLabTest = asyncHandler(async (req, res) => {
+  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test');
+  await labTest.destroy();
 
-const updateLabTest = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, results, notes } = req.body;
+  res.status(200).json({
+    status: 'success',
+    message: 'Lab test deleted successfully',
+  });
+});
 
-    const labTest = await db.LaboratoryTest.findByPk(id);
-    if (!labTest) {
-      return res.status(404).json({ status: 'error', message: 'Lab test not found' });
-    }
+const generateLabReport = asyncHandler(async (req, res) => {
+  const labTest = await findByPkOr404(db.LaboratoryTest, req.params.id, 'Lab test', {
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+    ],
+  });
 
-    const updateData = {
-      status,
-      results,
-      notes,
-    };
+  const reportDraft = [
+    `Patient: ${labTest.patient?.firstName || ''} ${labTest.patient?.lastName || ''}`.trim(),
+    `Test: ${labTest.testName}`,
+    `Status: ${labTest.status}`,
+    `Ordered Date: ${labTest.orderDate}`,
+    `Result Date: ${labTest.resultDate || 'N/A'}`,
+    `Findings: ${JSON.stringify(labTest.results || {}, null, 2)}`,
+    `Doctor: Dr. ${labTest.doctor?.user?.firstName || ''} ${labTest.doctor?.user?.lastName || ''}`.trim(),
+    `Notes: ${labTest.notes || 'N/A'}`,
+  ].join('\n');
 
-    if (status === 'Sample Collected' || status === 'In Progress' || status === 'Completed') {
-      updateData.performedBy = req.user.id;
-    }
+  const professionalReport = await aiService.generateMedicalReport(reportDraft);
 
-    if (status === 'Completed') {
-      updateData.resultDate = new Date();
-    }
-
-    await labTest.update(updateData);
-
-    const populatedLabTest = await db.LaboratoryTest.findByPk(labTest.id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.User, as: 'orderedByUser', attributes: { exclude: ['password'] } },
-        { model: db.User, as: 'performedByUser', attributes: { exclude: ['password'] } },
-      ],
-    });
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Lab test updated successfully',
-      data: populatedLabTest,
-    });
-  } catch (error) {
-    logger.error('Update lab test error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
-
-const deleteLabTest = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const labTest = await db.LaboratoryTest.findByPk(id);
-    if (!labTest) {
-      return res.status(404).json({ status: 'error', message: 'Lab test not found' });
-    }
-
-    await labTest.destroy();
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Lab test deleted successfully',
-    });
-  } catch (error) {
-    logger.error('Delete lab test error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
-
-const generateLabReport = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const labTest = await db.LaboratoryTest.findByPk(id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-      ],
-    });
-
-    if (!labTest) {
-      return res.status(404).json({ status: 'error', message: 'Lab test not found' });
-    }
-
-    const reportDraft = [
-      `Patient: ${labTest.patient?.firstName || ''} ${labTest.patient?.lastName || ''}`.trim(),
-      `Test: ${labTest.testName}`,
-      `Status: ${labTest.status}`,
-      `Ordered Date: ${labTest.orderDate}`,
-      `Result Date: ${labTest.resultDate || 'N/A'}`,
-      `Findings: ${JSON.stringify(labTest.results || {}, null, 2)}`,
-      `Doctor: Dr. ${labTest.doctor?.user?.firstName || ''} ${labTest.doctor?.user?.lastName || ''}`.trim(),
-      `Notes: ${labTest.notes || 'N/A'}`,
-    ].join('\n');
-
-    const professionalReport = await aiService.generateMedicalReport(reportDraft);
-
-    return res.status(200).json({
-      status: 'success',
-      data: {
-        testId: labTest.id,
-        report: professionalReport,
-      },
-    });
-  } catch (error) {
-    logger.error('Generate lab report error:', error);
-    return res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+  return res.status(200).json({
+    status: 'success',
+    data: {
+      testId: labTest.id,
+      report: professionalReport,
+    },
+  });
+});
 
 module.exports = {
   createLabTest,

@@ -1,73 +1,33 @@
 import api from './api';
+import createCrudService from './createCrudService';
+
+const wardCrud = createCrudService('/ward-management/wards');
+const bedCrud = createCrudService('/ward-management/beds');
+const admissionCrud = createCrudService('/ward-management/admissions');
 
 export const wardManagementService = {
   // Wards
-  createWard: async (data) => {
-    const response = await api.post('/ward-management/wards', data);
-    return response.data;
-  },
-  getWards: async () => {
-    const response = await api.get('/ward-management/wards');
-    return response.data;
-  },
-  getWardById: async (id) => {
-    const response = await api.get(`/ward-management/wards/${id}`);
-    return response.data;
-  },
-  updateWard: async (id, data) => {
-    const response = await api.put(`/ward-management/wards/${id}`, data);
-    return response.data;
-  },
-  deleteWard: async (id) => {
-    const response = await api.delete(`/ward-management/wards/${id}`);
-    return response.data;
-  },
+  createWard: wardCrud.create,
+  getWards: wardCrud.getAll,
+  getWardById: wardCrud.getById,
+  updateWard: wardCrud.update,
+  deleteWard: wardCrud.delete,
 
   // Beds
-  createBed: async (data) => {
-    const response = await api.post('/ward-management/beds', data);
-    return response.data;
-  },
-  getBeds: async () => {
-    const response = await api.get('/ward-management/beds');
-    return response.data;
-  },
-  getBedById: async (id) => {
-    const response = await api.get(`/ward-management/beds/${id}`);
-    return response.data;
-  },
-  updateBed: async (id, data) => {
-    const response = await api.put(`/ward-management/beds/${id}`, data);
-    return response.data;
-  },
-  deleteBed: async (id) => {
-    const response = await api.delete(`/ward-management/beds/${id}`);
-    return response.data;
-  },
+  createBed: bedCrud.create,
+  getBeds: bedCrud.getAll,
+  getBedById: bedCrud.getById,
+  updateBed: bedCrud.update,
+  deleteBed: bedCrud.delete,
 
   // Admissions
-  createAdmission: async (data) => {
-    const response = await api.post('/ward-management/admissions', data);
-    return response.data;
-  },
-  getAdmissions: async (params = {}) => {
-    const response = await api.get('/ward-management/admissions', { params });
-    return response.data;
-  },
-  getAdmissionById: async (id) => {
-    const response = await api.get(`/ward-management/admissions/${id}`);
-    return response.data;
-  },
-  updateAdmission: async (id, data) => {
-    const response = await api.put(`/ward-management/admissions/${id}`, data);
-    return response.data;
-  },
+  createAdmission: admissionCrud.create,
+  getAdmissions: admissionCrud.getAll,
+  getAdmissionById: admissionCrud.getById,
+  updateAdmission: admissionCrud.update,
   dischargePatient: async (id) => {
     const response = await api.put(`/ward-management/admissions/${id}/discharge`);
     return response.data;
   },
-  deleteAdmission: async (id) => {
-    const response = await api.delete(`/ward-management/admissions/${id}`);
-    return response.data;
-  },
+  deleteAdmission: admissionCrud.delete,
 };

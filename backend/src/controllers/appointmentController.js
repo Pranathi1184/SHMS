@@ -3,29 +3,15 @@ const logger = require('../utils/logger');
 const db = require('../models');
 const { createNotificationsForUsers } = require('../services/notificationService');
 const sequelize = require('../config/database');
+const asyncHandler = require('../utils/asyncHandler');
+const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
+const { findByPkOr404, getLinkedPatientForUser, generateBillNumber } = require('../utils/controllerHelpers');
+const { normalizeTime, toMinutes, formatMinutes } = require('../utils/timeUtils');
 
 const DEFAULT_AVAILABLE_DAYS = [1, 2, 3, 4, 5];
 const DEFAULT_START_TIME = '09:00';
 const DEFAULT_END_TIME = '17:00';
 const DEFAULT_SLOT_DURATION = 30;
-
-const normalizeTime = (value) => {
-  if (!value) return null;
-  return String(value).slice(0, 5);
-};
-
-const toMinutes = (value) => {
-  if (!value || !value.includes(':')) return NaN;
-  const [hours, minutes] = value.split(':').map(Number);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return NaN;
-  return (hours * 60) + minutes;
-};
-
-const formatMinutes = (minutes) => {
-  const hours = String(Math.floor(minutes / 60)).padStart(2, '0');
-  const mins = String(minutes % 60).padStart(2, '0');
-  return `${hours}:${mins}`;
-};
 
 const getDateRange = (dateValue) => {
   const start = new Date(dateValue);
@@ -187,14 +173,6 @@ const timeInWindow = (candidateStart, candidateEnd, fromMinutes, toMinutes) => {
   return candidateStart >= fromMinutes && candidateEnd <= toMinutes;
 };
 
-const getLinkedPatientForUser = async (user) => {
-  if (user?.role !== 'Patient') {
-    return null;
-  }
-
-  return db.Patient.findOne({ where: { email: user.email } });
-};
-
 const getUserForPatient = async (patientId) => {
   const patient = await db.Patient.findByPk(patientId);
   if (!patient?.email) {
@@ -265,15 +243,6 @@ const notifyWaitlistMatches = async (doctorId, date, startTime, endTime) => {
   }
 };
 
-const generateBillNumber = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  const rand = Math.floor(1000 + Math.random() * 9000);
-  return `AUTO-${y}${m}${d}-${rand}`;
-};
-
 const ensureDraftBillForCompletedAppointment = async (appointmentId, actingUserId) => {
   const existingLink = await db.AppointmentBillingLink.findOne({ where: { appointmentId } });
   if (existingLink) {
@@ -291,7 +260,7 @@ const ensureDraftBillForCompletedAppointment = async (appointmentId, actingUserI
   }
 
   const consultationFee = Number(appointment.doctor?.consultationFee || 0);
-  const billNumber = generateBillNumber();
+  const billNumber = generateBillNumber('AUTO');
   const autoNotes = `Auto-generated draft from completed appointment ${appointment.id}`;
 
   const bill = await db.Bill.create({
@@ -339,15 +308,11 @@ const ensureDraftBillForCompletedAppointment = async (appointmentId, actingUserI
   );
 };
 
-const checkAvailability = async (req, res) => {
-  try {
+const checkAvailability = asyncHandler(async (req, res) => {
     const { doctorId, date, startTime, endTime } = req.query;
-    const doctor = await db.Doctor.findByPk(doctorId, {
+    const doctor = await findByPkOr404(db.Doctor, doctorId, 'Doctor', {
       include: [{ model: db.DoctorSchedule, as: 'doctorSchedule' }],
     });
-    if (!doctor) {
-      return res.status(404).json({ status: 'error', message: 'Doctor not found' });
-    }
 
     const schedule = resolveDoctorSchedule(doctor);
     const bookedSlots = await loadBookedSlots(doctorId, date);
@@ -392,14 +357,9 @@ const checkAvailability = async (req, res) => {
         suggestedSlots,
       },
     });
-  } catch (error) {
-    logger.error('Check availability error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const getAvailableDoctors = async (req, res) => {
-  try {
+const getAvailableDoctors = asyncHandler(async (req, res) => {
     const { date, startTime, endTime } = req.query;
 
     const start = toMinutes(startTime);
@@ -464,14 +424,9 @@ const getAvailableDoctors = async (req, res) => {
         doctors: availableDoctors,
       },
     });
-  } catch (error) {
-    logger.error('Get available doctors error:', error);
-    return res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const findBestSlots = async (req, res) => {
-  try {
+const findBestSlots = asyncHandler(async (req, res) => {
     const {
       date,
       fromTime,
@@ -541,14 +496,9 @@ const findBestSlots = async (req, res) => {
       .slice(0, 3);
 
     return res.status(200).json({ status: 'success', data: { slots: topThree } });
-  } catch (error) {
-    logger.error('Find best slots error:', error);
-    return res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const getPreVisitReadiness = async (req, res) => {
-  try {
+const getPreVisitReadiness = asyncHandler(async (req, res) => {
     const targetDate = req.query.date || new Date().toISOString().split('T')[0];
     const { start: dayStart, end: dayEnd } = getDateRange(targetDate);
 
@@ -613,14 +563,9 @@ const getPreVisitReadiness = async (req, res) => {
     }
 
     return res.status(200).json({ status: 'success', data: { queue } });
-  } catch (error) {
-    logger.error('Get pre-visit readiness error:', error);
-    return res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const createAppointment = async (req, res) => {
-  try {
+const createAppointment = asyncHandler(async (req, res) => {
     const {
       patientId,
       doctorId,
@@ -724,16 +669,11 @@ const createAppointment = async (req, res) => {
       message: 'Appointment created successfully',
       data: populatedAppointment,
     });
-  } catch (error) {
-    logger.error('Create appointment error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const getAppointments = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, status, patientId, doctorId, search = '' } = req.query;
-    const offset = (page - 1) * limit;
+const getAppointments = asyncHandler(async (req, res) => {
+    const { status, patientId, doctorId, search = '' } = req.query;
+    const { page, limit, offset } = parsePagination(req.query);
 
     let whereClause = {};
     if (status) whereClause.status = status;
@@ -764,8 +704,8 @@ const getAppointments = async (req, res) => {
 
     const { count, rows: appointments } = await db.Appointment.findAndCountAll({
       where: whereClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      limit,
+      offset,
       distinct: true,
       subQuery: false,
       include: [
@@ -779,26 +719,16 @@ const getAppointments = async (req, res) => {
       status: 'success',
       data: {
         appointments,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalItems: count,
-          totalPages: Math.ceil(count / limit),
-        },
+        pagination: buildPaginationResponse(count, page, limit),
         filters: {
           search: normalizedSearch || null,
           status: status || null,
         },
       },
     });
-  } catch (error) {
-    logger.error('Get appointments error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const getAppointmentById = async (req, res) => {
-  try {
+const getAppointmentById = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
     const appointment = await db.Appointment.findByPk(id, {
@@ -829,14 +759,9 @@ const getAppointmentById = async (req, res) => {
       status: 'success',
       data: appointment,
     });
-  } catch (error) {
-    logger.error('Get appointment by id error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const updateAppointment = async (req, res) => {
-  try {
+const updateAppointment = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const {
       appointmentDate,
@@ -910,14 +835,9 @@ const updateAppointment = async (req, res) => {
       message: 'Appointment updated successfully',
       data: populatedAppointment,
     });
-  } catch (error) {
-    logger.error('Update appointment error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
-const cancelAppointment = async (req, res) => {
-  try {
+const cancelAppointment = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
     const appointment = await db.Appointment.findByPk(id);
@@ -960,11 +880,7 @@ const cancelAppointment = async (req, res) => {
       status: 'success',
       message: 'Appointment cancelled successfully',
     });
-  } catch (error) {
-    logger.error('Cancel appointment error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+});
 
 module.exports = {
   checkAvailability,

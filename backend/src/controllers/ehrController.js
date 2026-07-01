@@ -1,233 +1,181 @@
 const logger = require('../utils/logger');
 const db = require('../models');
 const { logAudit } = require('../services/auditService');
+const asyncHandler = require('../utils/asyncHandler');
+const { parsePagination, buildPaginationResponse } = require('../utils/pagination');
+const { findByPkOr404 } = require('../utils/controllerHelpers');
 
-const createEHR = async (req, res) => {
-  try {
-    const {
-      patientId,
-      doctorId,
-      diagnosis,
-      symptoms,
-      treatmentPlan,
-      notes,
-      appointmentId,
-    } = req.body;
+const createEHR = asyncHandler(async (req, res) => {
+  const {
+    patientId,
+    doctorId,
+    diagnosis,
+    symptoms,
+    treatmentPlan,
+    notes,
+    appointmentId,
+  } = req.body;
 
-    const patient = await db.Patient.findByPk(patientId);
-    if (!patient) {
-      return res.status(404).json({ status: 'error', message: 'Patient not found' });
-    }
+  await findByPkOr404(db.Patient, patientId, 'Patient');
+  await findByPkOr404(db.Doctor, doctorId, 'Doctor');
 
-    const doctor = await db.Doctor.findByPk(doctorId);
-    if (!doctor) {
-      return res.status(404).json({ status: 'error', message: 'Doctor not found' });
-    }
-
-    if (appointmentId) {
-      const appointment = await db.Appointment.findByPk(appointmentId);
-      if (!appointment) {
-        return res.status(404).json({ status: 'error', message: 'Appointment not found' });
-      }
-    }
-
-    const ehr = await db.EHR.create({
-      patientId,
-      doctorId,
-      diagnosis,
-      symptoms,
-      treatmentPlan,
-      notes,
-      appointmentId,
-      createdBy: req.user.id,
-    });
-
-    const populatedEHR = await db.EHR.findByPk(ehr.id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.Appointment, as: 'appointment' },
-        { model: db.User, as: 'creator', attributes: { exclude: ['password'] } },
-      ],
-    });
-
-    await logAudit({
-      req,
-      action: 'CREATE',
-      entityType: 'EHR',
-      entityId: ehr.id,
-      after: {
-        patientId: ehr.patientId,
-        doctorId: ehr.doctorId,
-        diagnosis: ehr.diagnosis,
-      },
-    });
-
-    res.status(201).json({
-      status: 'success',
-      message: 'EHR record created successfully',
-      data: populatedEHR,
-    });
-  } catch (error) {
-    logger.error('Create EHR error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  if (appointmentId) {
+    await findByPkOr404(db.Appointment, appointmentId, 'Appointment');
   }
-};
 
-const getEHRs = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, patientId, doctorId, appointmentId } = req.query;
-    const offset = (page - 1) * limit;
+  const ehr = await db.EHR.create({
+    patientId,
+    doctorId,
+    diagnosis,
+    symptoms,
+    treatmentPlan,
+    notes,
+    appointmentId,
+    createdBy: req.user.id,
+  });
 
-    let whereClause = {};
-    if (patientId) whereClause.patientId = patientId;
-    if (doctorId) whereClause.doctorId = doctorId;
-    if (appointmentId) whereClause.appointmentId = appointmentId;
+  const populatedEHR = await db.EHR.findByPk(ehr.id, {
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.Appointment, as: 'appointment' },
+      { model: db.User, as: 'creator', attributes: { exclude: ['password'] } },
+    ],
+  });
 
-    const { count, rows: ehrs } = await db.EHR.findAndCountAll({
-      where: whereClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.Appointment, as: 'appointment' },
-      ],
-      order: [['createdAt', 'DESC']],
-    });
+  await logAudit({
+    req,
+    action: 'CREATE',
+    entityType: 'EHR',
+    entityId: ehr.id,
+    after: {
+      patientId: ehr.patientId,
+      doctorId: ehr.doctorId,
+      diagnosis: ehr.diagnosis,
+    },
+  });
 
-    res.status(200).json({
-      status: 'success',
-      data: {
-        ehrs,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalItems: count,
-          totalPages: Math.ceil(count / limit),
-        },
-      },
-    });
-  } catch (error) {
-    logger.error('Get EHRs error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+  res.status(201).json({
+    status: 'success',
+    message: 'EHR record created successfully',
+    data: populatedEHR,
+  });
+});
 
-const getEHRById = async (req, res) => {
-  try {
-    const { id } = req.params;
+const getEHRs = asyncHandler(async (req, res) => {
+  const { page, limit, offset } = parsePagination(req.query);
+  const { patientId, doctorId, appointmentId } = req.query;
 
-    const ehr = await db.EHR.findByPk(id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.Appointment, as: 'appointment' },
-        { model: db.User, as: 'creator', attributes: { exclude: ['password'] } },
-        { model: db.Prescription, as: 'prescriptions', include: [{ model: db.PrescriptionItem, as: 'items', include: [{ model: db.Medicine, as: 'medicine' }] }] },
-      ],
-    });
+  let whereClause = {};
+  if (patientId) whereClause.patientId = patientId;
+  if (doctorId) whereClause.doctorId = doctorId;
+  if (appointmentId) whereClause.appointmentId = appointmentId;
 
-    if (!ehr) {
-      return res.status(404).json({ status: 'error', message: 'EHR record not found' });
-    }
+  const { count, rows: ehrs } = await db.EHR.findAndCountAll({
+    where: whereClause,
+    limit,
+    offset,
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.Appointment, as: 'appointment' },
+    ],
+    order: [['createdAt', 'DESC']],
+  });
 
-    res.status(200).json({
-      status: 'success',
-      data: ehr,
-    });
-  } catch (error) {
-    logger.error('Get EHR by id error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+  res.status(200).json({
+    status: 'success',
+    data: {
+      ehrs,
+      pagination: buildPaginationResponse(count, page, limit),
+    },
+  });
+});
 
-const updateEHR = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { diagnosis, symptoms, treatmentPlan, notes } = req.body;
+const getEHRById = asyncHandler(async (req, res) => {
+  const ehr = await findByPkOr404(db.EHR, req.params.id, 'EHR record', {
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.Appointment, as: 'appointment' },
+      { model: db.User, as: 'creator', attributes: { exclude: ['password'] } },
+      { model: db.Prescription, as: 'prescriptions', include: [{ model: db.PrescriptionItem, as: 'items', include: [{ model: db.Medicine, as: 'medicine' }] }] },
+    ],
+  });
 
-    const ehr = await db.EHR.findByPk(id);
-    if (!ehr) {
-      return res.status(404).json({ status: 'error', message: 'EHR record not found' });
-    }
+  res.status(200).json({
+    status: 'success',
+    data: ehr,
+  });
+});
 
-    const beforeState = ehr.toJSON();
+const updateEHR = asyncHandler(async (req, res) => {
+  const ehr = await findByPkOr404(db.EHR, req.params.id, 'EHR record');
+  const { diagnosis, symptoms, treatmentPlan, notes } = req.body;
 
-    await ehr.update({
-      diagnosis,
-      symptoms,
-      treatmentPlan,
-      notes,
-    });
+  const beforeState = ehr.toJSON();
 
-    const populatedEHR = await db.EHR.findByPk(ehr.id, {
-      include: [
-        { model: db.Patient, as: 'patient' },
-        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-        { model: db.Appointment, as: 'appointment' },
-      ],
-    });
+  await ehr.update({
+    diagnosis,
+    symptoms,
+    treatmentPlan,
+    notes,
+  });
 
-    await logAudit({
-      req,
-      action: 'UPDATE',
-      entityType: 'EHR',
-      entityId: ehr.id,
-      before: {
-        diagnosis: beforeState.diagnosis,
-        symptoms: beforeState.symptoms,
-      },
-      after: {
-        diagnosis: ehr.diagnosis,
-        symptoms: ehr.symptoms,
-      },
-    });
+  const populatedEHR = await db.EHR.findByPk(ehr.id, {
+    include: [
+      { model: db.Patient, as: 'patient' },
+      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      { model: db.Appointment, as: 'appointment' },
+    ],
+  });
 
-    res.status(200).json({
-      status: 'success',
-      message: 'EHR record updated successfully',
-      data: populatedEHR,
-    });
-  } catch (error) {
-    logger.error('Update EHR error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+  await logAudit({
+    req,
+    action: 'UPDATE',
+    entityType: 'EHR',
+    entityId: ehr.id,
+    before: {
+      diagnosis: beforeState.diagnosis,
+      symptoms: beforeState.symptoms,
+    },
+    after: {
+      diagnosis: ehr.diagnosis,
+      symptoms: ehr.symptoms,
+    },
+  });
 
-const deleteEHR = async (req, res) => {
-  try {
-    const { id } = req.params;
+  res.status(200).json({
+    status: 'success',
+    message: 'EHR record updated successfully',
+    data: populatedEHR,
+  });
+});
 
-    const ehr = await db.EHR.findByPk(id);
-    if (!ehr) {
-      return res.status(404).json({ status: 'error', message: 'EHR record not found' });
-    }
+const deleteEHR = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const ehr = await findByPkOr404(db.EHR, id, 'EHR record');
 
-    const beforeState = ehr.toJSON();
-    await ehr.destroy();
+  const beforeState = ehr.toJSON();
+  await ehr.destroy();
 
-    await logAudit({
-      req,
-      action: 'DELETE',
-      entityType: 'EHR',
-      entityId: id,
-      before: {
-        patientId: beforeState.patientId,
-        doctorId: beforeState.doctorId,
-        diagnosis: beforeState.diagnosis,
-      },
-    });
+  await logAudit({
+    req,
+    action: 'DELETE',
+    entityType: 'EHR',
+    entityId: id,
+    before: {
+      patientId: beforeState.patientId,
+      doctorId: beforeState.doctorId,
+      diagnosis: beforeState.diagnosis,
+    },
+  });
 
-    res.status(200).json({
-      status: 'success',
-      message: 'EHR record deleted successfully',
-    });
-  } catch (error) {
-    logger.error('Delete EHR error:', error);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
-  }
-};
+  res.status(200).json({
+    status: 'success',
+    message: 'EHR record deleted successfully',
+  });
+});
 
 module.exports = {
   createEHR,

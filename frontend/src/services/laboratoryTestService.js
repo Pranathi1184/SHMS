@@ -1,24 +1,11 @@
-import api from './api';
+import createCrudService from './createCrudService';
+
+const crud = createCrudService('/laboratory-tests');
 
 export const laboratoryTestService = {
-  createLabTest: async (data) => {
-    const response = await api.post('/laboratory-tests', data);
-    return response.data;
-  },
-  getLabTests: async (params = {}) => {
-    const response = await api.get('/laboratory-tests', { params });
-    return response.data;
-  },
-  getLabTestById: async (id) => {
-    const response = await api.get(`/laboratory-tests/${id}`);
-    return response.data;
-  },
-  updateLabTest: async (id, data) => {
-    const response = await api.put(`/laboratory-tests/${id}`, data);
-    return response.data;
-  },
-  deleteLabTest: async (id) => {
-    const response = await api.delete(`/laboratory-tests/${id}`);
-    return response.data;
-  },
+  createLabTest: crud.create,
+  getLabTests: crud.getAll,
+  getLabTestById: crud.getById,
+  updateLabTest: crud.update,
+  deleteLabTest: crud.delete,
 };
