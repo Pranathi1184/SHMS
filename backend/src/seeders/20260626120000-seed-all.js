@@ -632,6 +632,181 @@ module.exports = {
     }
     const createdNotifications = await db.Notification.bulkCreate(notifications, { returning: true });
 
+    // --------------------------
+    // Step 16: Seed Doctor Schedules
+    // --------------------------
+    console.log('Seeding doctor schedules...');
+    const schedules = [];
+    const dayOptions = [
+      [1, 2, 3, 4, 5],           // Monday-Friday
+      [1, 3, 5],                 // Monday, Wednesday, Friday
+      [2, 4, 6],                 // Tuesday, Thursday, Saturday
+      [1, 2, 3, 4, 5, 6],       // Monday-Saturday
+    ];
+    for (const doctor of createdDoctors) {
+      schedules.push({
+        doctorId: doctor.id,
+        availableFrom: helpers.random(['08:00', '09:00', '09:30']),
+        availableTo: helpers.random(['16:00', '17:00', '17:30', '18:00']),
+        slotDurationMinutes: helpers.random([15, 20, 30]),
+        availableDays: helpers.random(dayOptions),
+        runningLate: Math.random() > 0.8,
+        lateDelayMinutes: Math.random() > 0.8 ? helpers.randomNumber(5, 30) : 0,
+        lateUpdatedAt: Math.random() > 0.8 ? new Date() : null,
+      });
+    }
+    await db.DoctorSchedule.bulkCreate(schedules);
+
+    // --------------------------
+    // Step 17: Seed No-Show Predictions
+    // --------------------------
+    console.log('Seeding no-show predictions...');
+    const noShowPredictions = [];
+    const scheduledAppointments = createdAppointments.filter(a => a.status === 'Scheduled');
+    const riskLabels = ['Low', 'Medium', 'High'];
+    const riskRecommendations = [
+      'Standard confirmation sufficient.',
+      'Send extra reminder 24h before appointment.',
+      'High risk – call patient directly to confirm.',
+    ];
+    const predictionCount = Math.min(scheduledAppointments.length, 200);
+    for (let i = 0; i < predictionCount; i++) {
+      const appt = scheduledAppointments[i];
+      const riskScore = Math.round(Math.random() * 100) / 100;
+      const labelIdx = riskScore < 0.3 ? 0 : riskScore < 0.7 ? 1 : 2;
+      noShowPredictions.push({
+        appointment_id: appt.id,
+        score_date: new Date().toISOString().slice(0, 10),
+        risk_score: riskScore,
+        risk_label: riskLabels[labelIdx],
+        recommendation: riskRecommendations[labelIdx],
+      });
+    }
+    await db.NoShowPrediction.bulkCreate(noShowPredictions);
+
+    // --------------------------
+    // Step 18: Seed Bed Occupancy Forecast
+    // --------------------------
+    console.log('Seeding bed occupancy forecast...');
+    const bedForecasts = [];
+    const forecastWardTypes = ['General', 'ICU', 'Pediatrics', 'Maternity', 'Surgical', 'Emergency'];
+    for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+      const forecastDate = new Date();
+      forecastDate.setDate(forecastDate.getDate() + dayOffset);
+      const dateStr = forecastDate.toISOString().slice(0, 10);
+      for (const wt of forecastWardTypes) {
+        bedForecasts.push({
+          date: dateStr,
+          ward_type: wt,
+          predicted_occupancy_rate: helpers.randomNumber(30, 95),
+        });
+      }
+    }
+    await db.BedOccupancyForecast.bulkCreate(bedForecasts);
+
+    // --------------------------
+    // Step 19: Seed Doctor Load Forecast
+    // --------------------------
+    console.log('Seeding doctor load forecast...');
+    const doctorLoadForecasts = [];
+    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const forecastDate = new Date();
+      forecastDate.setDate(forecastDate.getDate() + dayOffset);
+      const dateStr = forecastDate.toISOString().slice(0, 10);
+      for (const doctor of createdDoctors) {
+        doctorLoadForecasts.push({
+          forecast_date: dateStr,
+          doctor_id: doctor.id,
+          predicted_appointments: helpers.randomNumber(2, 18),
+          recommendation: helpers.random([
+            'Normal workload expected.',
+            'Heavy load – consider redistributing walk-ins.',
+            'Light schedule – available for urgent cases.',
+            'At capacity – block new bookings.',
+          ]),
+        });
+      }
+    }
+    await db.DoctorLoadForecast.bulkCreate(doctorLoadForecasts);
+
+    // --------------------------
+    // Step 20: Seed Medicine Demand Forecast
+    // --------------------------
+    console.log('Seeding medicine demand forecast...');
+    const medicineDemandForecasts = [];
+    const forecastMedicines = createdMedicines.slice(0, 30);
+    for (let monthOffset = 0; monthOffset < 6; monthOffset++) {
+      const forecastMonth = new Date();
+      forecastMonth.setMonth(forecastMonth.getMonth() + monthOffset);
+      forecastMonth.setDate(1);
+      const dateStr = forecastMonth.toISOString().slice(0, 10);
+      for (const med of forecastMedicines) {
+        medicineDemandForecasts.push({
+          medicine_name: med.name,
+          month: dateStr,
+          predicted_quantity: helpers.randomNumber(20, 300),
+          confidence: Math.round(Math.random() * 40 + 60) / 100, // 0.6 - 1.0
+        });
+      }
+    }
+    await db.MedicineDemandForecast.bulkCreate(medicineDemandForecasts);
+
+    // --------------------------
+    // Step 21: Seed Billing Risk Scores
+    // --------------------------
+    console.log('Seeding billing risk scores...');
+    const billingRiskScores = [];
+    const pendingBills = createdBills.filter(b => b.paymentStatus === 'Pending' || b.paymentStatus === 'Partially Paid');
+    const riskBillCount = Math.min(pendingBills.length, 150);
+    for (let i = 0; i < riskBillCount; i++) {
+      const bill = pendingBills[i];
+      const score = Math.round(Math.random() * 100) / 100;
+      const label = score < 0.3 ? 'Low' : score < 0.7 ? 'Medium' : 'High';
+      billingRiskScores.push({
+        bill_id: bill.id,
+        score_date: new Date().toISOString().slice(0, 10),
+        risk_score: score,
+        risk_label: label,
+        recommendation: label === 'High'
+          ? 'Escalate – patient has history of late payments.'
+          : label === 'Medium'
+          ? 'Send payment reminder before due date.'
+          : 'Low risk – standard follow-up.',
+      });
+    }
+    await db.BillingRiskScore.bulkCreate(billingRiskScores);
+
+    // --------------------------
+    // Step 22: Seed Insurance Claims
+    // --------------------------
+    console.log('Seeding insurance claims...');
+    const claimsData = [];
+    const claimStatuses = ['Submitted', 'Under Verification', 'Approved', 'Rejected', 'Paid'];
+    const billsWithInsurance = createdBills.filter(b => b.insuranceId);
+    const claimCount = Math.min(billsWithInsurance.length, 100);
+    for (let i = 0; i < claimCount; i++) {
+      const bill = billsWithInsurance[i];
+      const status = helpers.random(claimStatuses);
+      const claimAmount = bill.netAmount || helpers.randomNumber(100, 5000);
+      const approved = status === 'Approved' || status === 'Paid';
+      claimsData.push({
+        insuranceId: bill.insuranceId,
+        patientId: bill.patientId,
+        billId: bill.id,
+        claimNumber: `CLM-${helpers.randomNumber(100000, 999999)}`,
+        claimAmount: claimAmount,
+        approvedAmount: approved ? Math.round(claimAmount * (helpers.randomNumber(70, 100) / 100)) : null,
+        status,
+        rejectionReason: status === 'Rejected' ? helpers.random([
+          'Pre-authorization not obtained',
+          'Service not covered under plan',
+          'Documentation incomplete',
+          'Claim filed after deadline',
+        ]) : null,
+        payoutDate: status === 'Paid' ? helpers.randomPastDate(0.5) : null,
+      });
+    }
+    await db.Claim.bulkCreate(claimsData);
 
     console.log('\n--------------------------');
     console.log('Seeding completed successfully!');
@@ -661,6 +836,13 @@ module.exports = {
     console.log('Undoing all seeds...');
 
     // Delete in reverse order to maintain foreign key constraints
+    await queryInterface.bulkDelete('claims', null, {});
+    await queryInterface.bulkDelete('billing_risk_scores', null, {});
+    await queryInterface.bulkDelete('medicine_demand_forecast', null, {});
+    await queryInterface.bulkDelete('doctor_load_forecast', null, {});
+    await queryInterface.bulkDelete('bed_occupancy_forecast', null, {});
+    await queryInterface.bulkDelete('no_show_predictions', null, {});
+    await queryInterface.bulkDelete('doctor_schedules', null, {});
     await queryInterface.bulkDelete('notifications', null, {});
     await queryInterface.bulkDelete('bill_items', null, {});
     await queryInterface.bulkDelete('bills', null, {});

@@ -25,6 +25,9 @@ describe('SHMS Workflow E2E Verification', () => {
   let workflowDoctorId;
   let workflowMedicineId;
   let workflowBedId;
+  let validAppointmentDate = '2027-12-31';
+  let validStartTime = '10:00';
+  let validEndTime = '10:30';
 
   const unique = Date.now();
 
@@ -110,6 +113,28 @@ describe('SHMS Workflow E2E Verification', () => {
     workflowDoctorId = doctor.id;
     workflowMedicineId = medicine.id;
     workflowBedId = bed.id;
+
+    // Determine a valid appointment date and time based on the doctor's schedule
+    const schedule = await db.DoctorSchedule.findOne({ where: { doctorId: doctor.id } });
+    const availableDays = schedule?.availableDays?.length ? schedule.availableDays : [1, 2, 3, 4, 5];
+    const availableFrom = schedule?.availableFrom || '09:00';
+    const availableTo = schedule?.availableTo || '17:00';
+    // Pick a start time safely inside the schedule window
+    const fromHour = parseInt(availableFrom.split(':')[0], 10);
+    const toHour = parseInt(availableTo.split(':')[0], 10);
+    const midHour = Math.min(fromHour + 1, toHour - 1);
+    validStartTime = `${String(midHour).padStart(2, '0')}:00`;
+    validEndTime = `${String(midHour).padStart(2, '0')}:30`;
+    // Find the next future date that falls on an available day
+    const baseDate = new Date('2027-12-20');
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + i);
+      if (availableDays.includes(d.getUTCDay())) {
+        validAppointmentDate = d.toISOString().slice(0, 10);
+        break;
+      }
+    }
 
     adminToken = generateAccessToken({ id: adminUser.id, role: 'Administrator', email: adminUser.email });
     doctorToken = generateAccessToken({ id: doctor.user.id, role: 'Doctor', email: doctor.user.email });
@@ -198,9 +223,9 @@ describe('SHMS Workflow E2E Verification', () => {
       .send({
         patientId: createdPatientId,
         doctorId: workflowDoctorId,
-        appointmentDate: '2027-12-31',
-        startTime: '16:00',
-        endTime: '16:30',
+        appointmentDate: validAppointmentDate,
+        startTime: validStartTime,
+        endTime: validEndTime,
         notes: 'Workflow verification appointment',
       });
 
