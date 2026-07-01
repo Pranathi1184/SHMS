@@ -121,11 +121,9 @@ describe('Prediction API', () => {
         .get('/api/predictions/doctor-load?doctorId=5')
         .set('Authorization', 'Bearer doctor-token');
 
-      expect(db.DoctorLoadForecast.findAll).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { doctor_id: 5 },
-        })
-      );
+      expect(db.DoctorLoadForecast.findAll).toHaveBeenCalledTimes(1);
+      const callArgs = db.DoctorLoadForecast.findAll.mock.calls[0][0];
+      expect(Number(callArgs.where.doctor_id)).toBe(5);
     });
 
     it('returns 500 on DB error', async () => {
