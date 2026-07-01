@@ -167,6 +167,17 @@ const generateMedicine = (index) => {
   const expiryDate = randomDate(new Date(), new Date(Date.now() + 365 * 3 * 24 * 60 * 60 * 1000)); // up to 3 years from now
   const purchaseDate = randomPastDate(2);
 
+  // Vary stock levels: ~10% out of stock, ~15% low stock, rest normal
+  const reorderLevel = randomNumber(20, 50);
+  let quantity;
+  if (index % 10 === 0) {
+    quantity = 0; // Out of stock (~10%)
+  } else if (index % 7 === 0) {
+    quantity = randomNumber(1, reorderLevel); // Low stock (~15%)
+  } else {
+    quantity = randomNumber(reorderLevel + 1, 500); // In stock
+  }
+
   return {
     id: uuidv4(),
     name: med.name,
@@ -177,9 +188,9 @@ const generateMedicine = (index) => {
     batchNumber,
     expiryDate,
     purchaseDate,
-    quantity: randomNumber(50, 500),
+    quantity,
     unitPrice: med.unitPrice,
-    reorderLevel: randomNumber(20, 50),
+    reorderLevel,
     createdAt: new Date(),
     updatedAt: new Date()
   };
