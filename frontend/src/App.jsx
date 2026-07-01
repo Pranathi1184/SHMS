@@ -174,13 +174,16 @@ function App() {
                 path="/ehr"
                 element={withLayout(<EHR />, ['Administrator', 'Doctor', 'Lab Technician', 'Pharmacist', 'Nurse'])}
               />
-              <Route path="/ehr-list" element={withLayout(<EHRList />, ['Administrator', 'Doctor', 'Nurse'])} />
+              <Route
+                path="/ehr-list"
+                element={withLayout(<EHRList />, ['Administrator', 'Doctor', 'Nurse', 'Lab Technician', 'Pharmacist'])}
+              />
 
               <Route
                 path="/laboratory"
                 element={withLayout(
                   <Laboratory />,
-                  ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Pharmacist', 'Billing Staff']
+                  ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Pharmacist']
                 )}
               />
 

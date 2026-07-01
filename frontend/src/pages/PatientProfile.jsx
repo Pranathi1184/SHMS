@@ -90,6 +90,13 @@ const PatientProfile = () => {
       .slice(0, 12);
   }, [patient]);
 
+  const doctorNotesItems = useMemo(() => {
+    const records = patient?.ehrRecords || [];
+    return [...records]
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, 10);
+  }, [patient]);
+
   const fillForm = (patientRecord) => {
     setFormData({
       firstName: patientRecord.firstName || '',
@@ -341,6 +348,35 @@ const PatientProfile = () => {
                 <Typography variant="caption" color="text.secondary">
                   {item.date ? new Date(item.date).toLocaleString() : 'Unknown'}
                 </Typography>
+              </Box>
+            ))}
+          </Paper>
+
+          <Paper sx={{ p: 3, mt: 2 }}>
+            <Typography variant="h6" fontWeight="bold" mb={2}>
+              Doctor Notes
+            </Typography>
+            {doctorNotesItems.length === 0 && (
+              <Typography color="text.secondary">No doctor notes available yet.</Typography>
+            )}
+            {doctorNotesItems.map((note) => (
+              <Box key={note.id} sx={{ pb: 1.5, mb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Typography fontWeight="bold" variant="body2">
+                  {note.doctor?.user ? `Dr. ${note.doctor.user.firstName || ''} ${note.doctor.user.lastName || ''}`.trim() : 'Doctor'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                  {note.createdAt ? new Date(note.createdAt).toLocaleString() : 'Unknown date'}
+                </Typography>
+                {note.diagnosis && (
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Diagnosis:</strong> {note.diagnosis}
+                  </Typography>
+                )}
+                {note.notes && (
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                    <strong>Notes:</strong> {note.notes}
+                  </Typography>
+                )}
               </Box>
             ))}
           </Paper>

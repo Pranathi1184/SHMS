@@ -57,7 +57,7 @@ exports.getDoctorLoadForecasts = async (req, res) => {
 
     let where = {};
     if (doctorId) {
-      where.doctor_id = parseInt(doctorId);
+      where.doctor_id = String(doctorId);
     }
 
     const forecasts = await DoctorLoadForecast.findAll({

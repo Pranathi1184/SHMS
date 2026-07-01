@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
+  Autocomplete,
   Box,
   Paper,
   Typography,
@@ -19,7 +20,6 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
-  MenuItem,
 } from '@mui/material';
 import {
   Add,
@@ -28,7 +28,10 @@ import {
   Visibility,
 } from '@mui/icons-material';
 import { ehrService } from '../services/ehrService';
-import { useForm } from 'react-hook-form';
+import { appointmentService } from '../services/appointmentService';
+import { doctorService } from '../services/doctorService';
+import { patientService } from '../services/patientService';
+import { Controller, useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
 import { readableId } from '../utils/formatters';
 
@@ -43,10 +46,14 @@ const EHR = () => {
   const [selectedEhr, setSelectedEhr] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ehrToDelete, setEhrToDelete] = useState(null);
+  const [patientOptions, setPatientOptions] = useState([]);
+  const [doctorOptions, setDoctorOptions] = useState([]);
+  const [appointmentOptions, setAppointmentOptions] = useState([]);
   const { user } = useAuth();
   const isAdmin = user?.role === 'Administrator';
   const canEdit = isAdmin || user?.role === 'Doctor';
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -55,7 +62,26 @@ const EHR = () => {
 
   useEffect(() => {
     fetchEHRs();
+    loadReferenceData();
   }, []);
+
+  const loadReferenceData = async () => {
+    try {
+      const [patientsResponse, doctorsResponse, appointmentsResponse] = await Promise.all([
+        patientService.getAllPatients({ page: 1, limit: 200 }),
+        doctorService.getDoctors({ page: 1, limit: 100 }),
+        appointmentService.getAppointments({ page: 1, limit: 200 }),
+      ]);
+
+      setPatientOptions(patientsResponse?.data?.patients || []);
+      setDoctorOptions(doctorsResponse?.data?.doctors || []);
+      setAppointmentOptions(appointmentsResponse?.data?.appointments || []);
+    } catch (err) {
+      setPatientOptions([]);
+      setDoctorOptions([]);
+      setAppointmentOptions([]);
+    }
+  };
 
   const fetchEHRs = async () => {
     try {
@@ -78,8 +104,28 @@ const EHR = () => {
 
   const handleOpenEditDialog = (ehr) => {
     setEditingEhr(ehr);
-    reset(ehr);
+    reset({
+      patientId: ehr.patientId || '',
+      doctorId: ehr.doctorId || '',
+      appointmentId: ehr.appointmentId || '',
+      diagnosis: ehr.diagnosis || '',
+      treatmentPlan: ehr.treatmentPlan || '',
+      notes: ehr.notes || '',
+    });
     setDialogOpen(true);
+  };
+
+  const patientLabel = (patient) => (patient ? `${patient.firstName || ''} ${patient.lastName || ''}`.trim() : '');
+  const doctorLabel = (doctor) => {
+    if (!doctor) return '';
+    const name = `${doctor.user?.firstName || ''} ${doctor.user?.lastName || ''}`.trim();
+    return `${name} | ${doctor.specialization || 'General'} | ${doctor.department?.name || 'No department'}`;
+  };
+  const appointmentLabel = (appointment) => {
+    if (!appointment) return '';
+    const patientName = appointment.patient ? `${appointment.patient.firstName || ''} ${appointment.patient.lastName || ''}`.trim() : 'Unknown patient';
+    const date = appointment.appointmentDate ? new Date(appointment.appointmentDate).toLocaleDateString() : 'No date';
+    return `${patientName} | ${date} ${appointment.startTime || ''}-${appointment.endTime || ''}`.trim();
   };
 
   const handleSubmitEhr = async (data) => {
@@ -236,30 +282,77 @@ const EHR = () => {
         </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSubmit(handleSubmitEhr)} sx={{ mt: 2 }}>
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Patient ID"
-              placeholder="Patient UUID"
-              {...register('patientId', { required: 'Patient ID is required' })}
-              error={!!errors.patientId}
-              helperText={errors.patientId?.message}
+            <Controller
+              name="patientId"
+              control={control}
+              rules={{ required: 'Patient is required' }}
+              render={({ field }) => (
+                <Autocomplete
+                  options={patientOptions}
+                  disabled={!!editingEhr}
+                  getOptionLabel={patientLabel}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  value={patientOptions.find((patient) => patient.id === field.value) || null}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Patient"
+                      error={!!errors.patientId}
+                      helperText={errors.patientId?.message}
+                    />
+                  )}
+                />
+              )}
             />
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Doctor ID"
-              placeholder="Doctor UUID"
-              {...register('doctorId', { required: 'Doctor ID is required' })}
-              error={!!errors.doctorId}
-              helperText={errors.doctorId?.message}
+            <Controller
+              name="doctorId"
+              control={control}
+              rules={{ required: 'Doctor is required' }}
+              render={({ field }) => (
+                <Autocomplete
+                  options={doctorOptions}
+                  disabled={!!editingEhr}
+                  getOptionLabel={doctorLabel}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  value={doctorOptions.find((doctor) => doctor.id === field.value) || null}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Doctor"
+                      error={!!errors.doctorId}
+                      helperText={errors.doctorId?.message}
+                    />
+                  )}
+                />
+              )}
             />
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Appointment ID (Optional)"
-              placeholder="Appointment UUID"
-              {...register('appointmentId')}
+            <Controller
+              name="appointmentId"
+              control={control}
+              render={({ field }) => (
+                <Autocomplete
+                  options={appointmentOptions}
+                  disabled={!!editingEhr}
+                  getOptionLabel={appointmentLabel}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  value={appointmentOptions.find((appointment) => appointment.id === field.value) || null}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Appointment (Optional)"
+                    />
+                  )}
+                />
+              )}
             />
             <TextField
               margin="normal"

@@ -5,16 +5,16 @@ export const agentService = {
     const response = await api.get('/agents/scheduling', { params });
     return response.data;
   },
-  triggerFollowUpAgent: async () => {
-    const response = await api.post('/agents/follow-up/trigger');
+  triggerFollowUpAgent: async (payload = {}) => {
+    const response = await api.post('/agents/follow-up/trigger', payload);
     return response.data;
   },
-  triggerInventoryAgent: async () => {
-    const response = await api.post('/agents/inventory/trigger');
+  triggerInventoryAgent: async (payload = {}) => {
+    const response = await api.post('/agents/inventory/trigger', payload);
     return response.data;
   },
-  triggerBillingAgent: async () => {
-    const response = await api.post('/agents/billing/trigger');
+  triggerBillingAgent: async (payload = {}) => {
+    const response = await api.post('/agents/billing/trigger', payload);
     return response.data;
   },
   getExecutionHistory: async (limit = 50) => {

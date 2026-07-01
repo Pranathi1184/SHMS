@@ -94,6 +94,14 @@ const Dashboard = () => {
       setLoading(true);
       setError('');
 
+      const role = user?.role;
+      const canSeeAnalyticsSummary = ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Billing Staff', 'Pharmacist'].includes(role);
+      const canSeeRevenue = ['Administrator', 'Billing Staff', 'Receptionist'].includes(role);
+      const canSeePatientStats = ['Administrator', 'Receptionist', 'Doctor', 'Nurse'].includes(role);
+      const canSeeDepartmentStats = ['Administrator', 'Receptionist', 'Doctor'].includes(role);
+      const canSeeInventory = ['Administrator', 'Pharmacist'].includes(role);
+      const canSeeOccupancy = ['Administrator', 'Nurse', 'Receptionist', 'Doctor'].includes(role);
+
       let analyticsRevenue = null;
       let analyticsPatients = null;
 
@@ -104,7 +112,7 @@ const Dashboard = () => {
       }
       const hasDateFilter = Boolean(params.fromDate || params.toDate);
 
-      if (!hasDateFilter) {
+      if (!hasDateFilter && canSeeAnalyticsSummary) {
         try {
           const analytics = await analyticsService.getSummary();
           const analyticsData = analytics?.data || {};
@@ -120,11 +128,11 @@ const Dashboard = () => {
       }
 
       const results = await Promise.allSettled([
-        reportService.getRevenueStats(params),
-        reportService.getPatientStats(params),
-        reportService.getDepartmentStats(params),
-        reportService.getInventoryAlerts(params),
-        reportService.getOccupancyStats(params),
+        canSeeRevenue ? reportService.getRevenueStats(params) : Promise.resolve(null),
+        canSeePatientStats ? reportService.getPatientStats(params) : Promise.resolve(null),
+        canSeeDepartmentStats ? reportService.getDepartmentStats(params) : Promise.resolve(null),
+        canSeeInventory ? reportService.getInventoryAlerts(params) : Promise.resolve(null),
+        canSeeOccupancy ? reportService.getOccupancyStats(params) : Promise.resolve(null),
       ]);
 
       const canSeeHeatmap = ['Administrator', 'Receptionist', 'Doctor'].includes(user?.role);
@@ -149,18 +157,33 @@ const Dashboard = () => {
         setPreVisitQueue([]);
       }
 
+      const revenueData = results[0].status === 'fulfilled' ? results[0].value?.data || null : null;
+      const patientStatsData = results[1].status === 'fulfilled' ? results[1].value?.data || {} : {};
+      const departmentsData = results[2].status === 'fulfilled' ? results[2].value?.data || null : null;
+      const inventoryData = results[3].status === 'fulfilled' ? results[3].value?.data || null : null;
+      const occupancyData = results[4].status === 'fulfilled' ? results[4].value?.data || null : null;
+
       setReports({
-        revenue: analyticsRevenue || (results[0].status === 'fulfilled' ? results[0].value.data : null),
+        revenue: analyticsRevenue || revenueData,
         patients: {
-          ...(results[1].status === 'fulfilled' ? results[1].value.data : {}),
+          ...patientStatsData,
           ...(analyticsPatients || {}),
         },
-        departments: results[2].status === 'fulfilled' ? results[2].value.data : null,
-        inventory: results[3].status === 'fulfilled' ? results[3].value.data : null,
-        occupancy: results[4].status === 'fulfilled' ? results[4].value.data : null,
+        departments: departmentsData,
+        inventory: inventoryData,
+        occupancy: occupancyData,
       });
 
-      const allFailed = results.every((r) => r.status === 'rejected');
+      const attemptedResults = results.filter((_, idx) => {
+        if (idx === 0) return canSeeRevenue;
+        if (idx === 1) return canSeePatientStats;
+        if (idx === 2) return canSeeDepartmentStats;
+        if (idx === 3) return canSeeInventory;
+        if (idx === 4) return canSeeOccupancy;
+        return false;
+      });
+
+      const allFailed = attemptedResults.length > 0 && attemptedResults.every((r) => r.status === 'rejected');
       if (allFailed) {
         setError('Unable to load reports for your role or current filters.');
       }
@@ -252,9 +275,9 @@ const Dashboard = () => {
 
   const roleTaskQueues = {
     Doctor: [
-      { label: 'Appointments to review', value: reports.departments?.departments?.reduce((acc, d) => acc + Number(d.appointmentCount || 0), 0) || 0, icon: <TaskAlt />, color: 'primary.main', action: () => navigate('/appointments') },
-      { label: 'Pending prescriptions', value: reports.inventory?.lowStockCount || 0, icon: <AssignmentLate />, color: 'warning.main', action: () => navigate('/prescriptions') },
-      { label: 'Open EHR records', value: reports.patients?.totalPatients || 0, icon: <People />, color: 'secondary.main', action: () => navigate('/ehr') },
+      { label: 'Pre-visit readiness alerts', value: preVisitQueue.length || 0, icon: <AssignmentLate />, color: 'warning.main', action: () => navigate('/appointments') },
+      { label: 'Capacity rebalance flags', value: capacityRecommendations.length || 0, icon: <EventBusy />, color: 'error.main', action: () => navigate('/appointments') },
+      { label: 'Patients in report scope', value: reports.patients?.totalPatients || 0, icon: <People />, color: 'secondary.main', action: () => navigate('/patients') },
     ],
     Receptionist: [
       { label: 'Arrivals to process', value: reports.departments?.departments?.reduce((acc, d) => acc + Number(d.appointmentCount || 0), 0) || 0, icon: <TaskAlt />, color: 'primary.main', action: () => navigate('/appointments') },

@@ -6,6 +6,18 @@ import warnings
 warnings.filterwarnings('ignore')
 
 try:
+    from sklearn.linear_model import LogisticRegression, LinearRegression
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.ensemble import RandomForestClassifier
+    HAS_SKLEARN = True
+except ModuleNotFoundError:
+    LogisticRegression = None
+    LinearRegression = None
+    StandardScaler = None
+    RandomForestClassifier = None
+    HAS_SKLEARN = False
+
+try:
     from scripts.config import ETLConfig
     from scripts.logging_utils import get_logger
 except ModuleNotFoundError:
@@ -17,30 +29,54 @@ def run_predictions(mode=None):
     config = ETLConfig.from_env(mode)
     logger = get_logger('etl.predict', config.log_level)
 
-    appointments = pd.read_csv(config.processed_dir / 'appointment_features.csv')
-    inventory = pd.read_csv(config.processed_dir / 'inventory_features.csv')
-    patient_trends = pd.read_csv(config.processed_dir / 'patient_trends.csv')
-    bills = pd.read_csv(config.raw_dir / 'bills.csv')
-
-    no_show = _build_no_show_predictions(appointments)
-    doctor_load = _build_doctor_load_forecast(appointments)
-    medicine_demand = _build_medicine_demand_forecast(inventory)
-    occupancy = _build_bed_occupancy_forecast(patient_trends)
-    billing_risk = _build_billing_risk_scores(bills)
-
-    created_at = datetime.utcnow()
-    for frame in [no_show, doctor_load, medicine_demand, occupancy, billing_risk]:
-        if not frame.empty:
-            frame['created_at'] = created_at
-
     engine = create_engine(config.target_db_url)
     try:
+      appointments = _load_dataframe_with_db_fallback(
+          config.processed_dir / 'appointment_features.csv',
+          engine,
+          'SELECT appointment_id, score_date, patient_id, doctor_id, day_of_week, hour_of_day, lead_time_hours, prior_appointments, prior_cancellations FROM appointment_features',
+          logger,
+          'appointment_features',
+      )
+      inventory = _load_dataframe_with_db_fallback(
+          config.processed_dir / 'inventory_features.csv',
+          engine,
+          'SELECT medicine_id, month, medicine_name, quantity_on_hand, reorder_level, recent_demand FROM inventory_features',
+          logger,
+          'inventory_features',
+      )
+      patient_trends = _load_dataframe_with_db_fallback(
+          config.processed_dir / 'patient_trends.csv',
+          engine,
+          'SELECT date, new_patients, total_appointments FROM patient_trends',
+          logger,
+          'patient_trends',
+      )
+      bills = _load_dataframe_with_db_fallback(
+          config.raw_dir / 'bills.csv',
+          engine,
+          'SELECT id, patient_id, bill_number, bill_date, total_amount, discount, tax_amount, net_amount, payment_mode, payment_status FROM bills',
+          logger,
+          'bills',
+      )
+
+      if not HAS_SKLEARN:
+          logger.warning('scikit-learn not installed; using deterministic heuristic fallbacks for predictions')
+
+      no_show = _build_no_show_predictions(appointments)
+      doctor_load = _build_doctor_load_forecast(appointments)
+      medicine_demand = _build_medicine_demand_forecast(inventory)
+      occupancy = _build_bed_occupancy_forecast(patient_trends)
+      billing_risk = _build_billing_risk_scores(bills)
+
       with engine.begin() as conn:
-                _replace_table(conn, no_show, 'no_show_predictions')
-                _replace_table(conn, doctor_load, 'doctor_load_forecast')
-                _replace_table(conn, medicine_demand, 'medicine_demand_forecast')
-                _replace_table(conn, occupancy, 'bed_occupancy_forecast')
-                _replace_table(conn, billing_risk, 'billing_risk_scores')
+                conn.execute(text('TRUNCATE TABLE no_show_predictions, doctor_load_forecast, medicine_demand_forecast, bed_occupancy_forecast, billing_risk_scores RESTART IDENTITY'))
+
+                _insert_rows(conn, no_show, 'no_show_predictions', ['appointment_id', 'score_date', 'risk_score', 'risk_label', 'recommendation', 'created_at'])
+                _insert_rows(conn, doctor_load, 'doctor_load_forecast', ['forecast_date', 'doctor_id', 'predicted_appointments', 'recommendation', 'created_at'])
+                _insert_rows(conn, medicine_demand, 'medicine_demand_forecast', ['month', 'medicine_name', 'predicted_quantity', 'confidence', 'created_at'])
+                _insert_rows(conn, occupancy, 'bed_occupancy_forecast', ['date', 'ward_type', 'predicted_occupancy_rate', 'created_at'])
+                _insert_rows(conn, billing_risk, 'billing_risk_scores', ['bill_id', 'score_date', 'risk_score', 'risk_label', 'recommendation', 'created_at'])
 
       logger.info('Prediction stage complete')
       return {
@@ -52,6 +88,19 @@ def run_predictions(mode=None):
       }
     finally:
       engine.dispose()
+
+
+def _load_dataframe_with_db_fallback(csv_path, engine, sql_query, logger, label):
+    try:
+        dataframe = pd.read_csv(csv_path)
+    except FileNotFoundError:
+        dataframe = pd.DataFrame()
+
+    if not dataframe.empty:
+        return dataframe
+
+    logger.info('%s CSV is empty; loading from database fallback', label)
+    return pd.read_sql(sql_query, engine)
 
 
 def _risk_label(score):
@@ -78,16 +127,34 @@ def _build_no_show_predictions(appointments):
     df['has_prior_cancellations'] = (df['prior_cancellations'] > 0).astype(int)
     df['short_notice'] = (df['lead_time_hours'] < 4).astype(int)
     df['weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
-    df['hour_of_day'] = pd.to_numeric(df.get('hour_of_day', 9), errors='coerce').fillna(9).astype(int)
-    df['early_morning'] = (df['hour_of_day'] < 7).astype(int)
+    df['early_morning'] = (df.get('hour_of_day', 9) < 7).astype(int)
     
-    risk_scores = (
-        0.10
-        + np.clip(df['prior_cancellations'], 0, 5) * 0.12
-        + np.where(df['short_notice'] == 1, 0.25, 0)
-        + np.where(df['weekend'] == 1, 0.06, 0)
-        + np.where(df['early_morning'] == 1, 0.03, 0)
-    ).clip(0, 0.99)
+    # Prepare features for model
+    features = ['prior_cancellations', 'lead_time_hours', 'day_of_week', 'short_notice', 'weekend']
+    X = df[features].fillna(0)
+    
+    # Scale features
+    if HAS_SKLEARN:
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+    
+    # Train Logistic Regression model
+    model = LogisticRegression(random_state=42, max_iter=1000) if HAS_SKLEARN else None
+    try:
+        # Generate synthetic labels for training (based on features)
+        y_synthetic = (df['prior_cancellations'] > 1).astype(int) | (df['short_notice'] > 0).astype(int)
+        if model is None:
+            raise RuntimeError('sklearn unavailable')
+        model.fit(X_scaled, y_synthetic)
+        risk_scores = model.predict_proba(X_scaled)[:, 1]
+    except Exception as e:
+        # Fallback to heuristic if model training fails
+        risk_scores = (
+            0.10
+            + np.clip(df['prior_cancellations'], 0, 5) * 0.12
+            + np.where(df['short_notice'] == 1, 0.25, 0)
+            + np.where(df['weekend'] == 1, 0.06, 0)
+        ).clip(0, 0.99)
     
     df['risk_score'] = np.clip(risk_scores, 0, 0.99)
     df['risk_label'] = df['risk_score'].apply(_risk_label)
@@ -97,8 +164,9 @@ def _build_no_show_predictions(appointments):
         'Low': 'Standard reminder cadence is sufficient.',
     })
     df['score_date'] = datetime.now().date()
+    df['created_at'] = datetime.utcnow()
     
-    return df[['appointment_id', 'score_date', 'risk_score', 'risk_label', 'recommendation']]
+    return df[['appointment_id', 'score_date', 'risk_score', 'risk_label', 'recommendation', 'created_at']]
 
 
 def _build_doctor_load_forecast(appointments):
@@ -110,8 +178,8 @@ def _build_doctor_load_forecast(appointments):
     
     # Ensure required columns
     df['score_date'] = pd.to_datetime(df.get('score_date', datetime.now()), errors='coerce')
-    df['doctor_id'] = df.get('doctor_id', '').fillna('').astype(str)
-    df = df[df['doctor_id'] != '']
+    df['doctor_id'] = df.get('doctor_id', '').astype(str)
+    df = df[df['doctor_id'].str.len() > 0]
     
     # Aggregate daily appointments per doctor
     agg = df.groupby([df['score_date'].dt.date, 'doctor_id']).size().reset_index(name='daily_count')
@@ -120,21 +188,37 @@ def _build_doctor_load_forecast(appointments):
     agg['day_of_week'] = agg['date'].dt.dayofweek
     agg['day_num'] = (agg['date'] - agg['date'].min()).dt.days
     
-    predictions = np.ceil(agg['daily_count'] * 1.10 + np.where(agg['day_of_week'] < 5, 1, 0)).astype(int)
-    confidence = min(0.8, 0.55 + len(agg) * 0.01)
+    # Prepare features for regression
+    if len(agg) > 3 and HAS_SKLEARN:
+        X = agg[['daily_count', 'day_of_week', 'day_num']].fillna(0)
+        y = agg['daily_count'].values
+        
+        # Train Linear Regression model
+        model = LinearRegression()
+        try:
+            model.fit(X, y)
+            predictions = np.maximum(model.predict(X), 0).astype(int)
+            confidence = min(0.85, 0.5 + len(agg) * 0.05)
+        except Exception as e:
+            predictions = (agg['daily_count'] * 1.08).astype(int)
+            confidence = 0.60
+    else:
+        predictions = (agg['daily_count'] * 1.08).astype(int)
+        confidence = 0.55
     
     result = agg.copy()
     result['predicted_appointments'] = np.ceil(predictions).astype(int)
-    result['confidence'] = confidence
-    result['recommendation'] = np.where(
-        result['predicted_appointments'] >= 16,
+    per_doctor = result.groupby('doctor_id', as_index=False)['predicted_appointments'].mean()
+    per_doctor['predicted_appointments'] = np.ceil(per_doctor['predicted_appointments']).astype(int)
+    per_doctor['recommendation'] = np.where(
+        per_doctor['predicted_appointments'] >= 16,
         'High load expected. Consider opening overflow slots or reassigning.',
         'Load acceptable. Keep current roster.',
     )
-    result = result.rename(columns={'date': 'forecast_date'})
-    result['forecast_date'] = (datetime.now() + timedelta(days=1)).date()
+    per_doctor['forecast_date'] = datetime.now().date()
+    per_doctor['created_at'] = datetime.utcnow()
     
-    return result[['forecast_date', 'doctor_id', 'predicted_appointments', 'recommendation']]
+    return per_doctor[['forecast_date', 'doctor_id', 'predicted_appointments', 'recommendation', 'created_at']]
 
 
 def _build_medicine_demand_forecast(inventory):
@@ -155,8 +239,22 @@ def _build_medicine_demand_forecast(inventory):
     df['demand_trend'] = df['recent_demand'] * 1.12  # 12% growth trend
     df['safety_stock'] = np.maximum(df['reorder_level'] - df['quantity_on_hand'], 0)
     
-    predictions = np.maximum(df['demand_trend'].values, 0)
-    confidence = min(0.82, 0.55 + len(df) * 0.01)
+    # Prepare features
+    X = df[['recent_demand', 'stock_ratio', 'safety_stock']].fillna(0)
+    
+    # Train Linear Regression model
+    model = LinearRegression() if HAS_SKLEARN else None
+    try:
+        if len(df) > 2 and model is not None:
+            model.fit(X, df['recent_demand'])
+            predictions = np.maximum(model.predict(X), 0)
+        else:
+            predictions = df['recent_demand'].values
+        
+        confidence = min(0.82, 0.5 + len(df) * 0.08)
+    except Exception as e:
+        predictions = df['recent_demand'].values
+        confidence = 0.60
     
     # Calculate predicted quantity with safety margin
     df['predicted_quantity'] = np.ceil(
@@ -164,10 +262,10 @@ def _build_medicine_demand_forecast(inventory):
     ).astype(int)
     
     df['confidence'] = confidence
-    current_month_start = datetime.now().replace(day=1).date()
-    df['month'] = current_month_start
+    df['month'] = datetime.now().strftime('%Y-%m-01')
+    df['created_at'] = datetime.utcnow()
     
-    return df[['month', 'medicine_name', 'predicted_quantity', 'confidence']]
+    return df[['month', 'medicine_name', 'predicted_quantity', 'confidence', 'created_at']]
 
 
 def _build_bed_occupancy_forecast(patient_trends):
@@ -186,7 +284,21 @@ def _build_bed_occupancy_forecast(patient_trends):
     df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
     df['appointment_density'] = df['total_appointments'] / 20  # Normalize by typical daily volume
     
-    predictions = np.clip(42 + df['appointment_density'] * 15 + np.where(df['is_weekend'] == 1, -3, 2), 20, 95)
+    # Prepare features
+    X = df[['appointment_density', 'is_weekend', 'day_of_week']].fillna(0)
+    
+    # Train Linear Regression model
+    model = LinearRegression() if HAS_SKLEARN else None
+    try:
+        if len(df) > 3 and model is not None:
+            # Synthetic target: occupancy correlates with appointments
+            y = np.clip(40 + df['appointment_density'] * 20, 20, 95)
+            model.fit(X, y)
+            predictions = model.predict(X)
+        else:
+            predictions = np.clip(42 + df['appointment_density'] * 15, 20, 95)
+    except Exception as e:
+        predictions = np.clip(42 + df['appointment_density'] * 15, 20, 95)
     
     df['predicted_occupancy_rate'] = np.clip(predictions, 20, 100).round(2)
     df['ward_type'] = 'General'
@@ -197,43 +309,57 @@ def _build_bed_occupancy_forecast(patient_trends):
         'Occupancy within normal range.',
     )
     
-    df['date'] = df['date'].dt.date
+    df['created_at'] = datetime.utcnow()
 
-    return df[['date', 'ward_type', 'predicted_occupancy_rate', 'confidence', 'recommendation']]
+    return df[['date', 'ward_type', 'predicted_occupancy_rate', 'confidence', 'recommendation', 'created_at']]
 
 
 def _build_billing_risk_scores(bills):
     """
     Predict billing payment risk using Random Forest Classification.
-    Features: bill amount, bill age, payment status.
+    Features: cancellation history, lead time, appointment type, patient segment.
     """
     df = bills.copy()
     
     # Ensure required columns
-    if df.empty:
-        return pd.DataFrame(columns=['bill_id', 'score_date', 'risk_score', 'risk_label', 'recommendation'])
+    if 'id' not in df.columns:
+        return pd.DataFrame(columns=['bill_id', 'score_date', 'risk_score', 'risk_label', 'recommendation', 'created_at'])
 
-    df['id'] = df.get('id', '').fillna('').astype(str)
-    df = df[df['id'] != '']
-    if df.empty:
-        return pd.DataFrame(columns=['bill_id', 'score_date', 'risk_score', 'risk_label', 'recommendation'])
-
-    df['net_amount'] = pd.to_numeric(df.get('net_amount', 0), errors='coerce').fillna(0)
+    df['bill_id'] = df['id'].astype(str)
+    df['net_amount'] = pd.to_numeric(df.get('net_amount', 0), errors='coerce').fillna(0.0)
     df['payment_status'] = df.get('payment_status', 'Pending').fillna('Pending').astype(str)
-    now_utc = pd.Timestamp.now(tz='UTC')
-    df['bill_date'] = pd.to_datetime(df.get('bill_date', now_utc), errors='coerce', utc=True).fillna(now_utc)
     
     # Feature engineering
-    df['is_pending'] = df['payment_status'].eq('Pending').astype(int)
-    df['is_partial'] = df['payment_status'].eq('Partially Paid').astype(int)
-    df['bill_age_days'] = (now_utc - df['bill_date']).dt.days.clip(lower=0)
+    df['is_pending'] = df['payment_status'].str.lower().eq('pending').astype(int)
+    df['is_overdue'] = df['payment_status'].str.lower().eq('overdue').astype(int)
+    df['amount_band'] = np.clip(df['net_amount'] / 1000.0, 0, 5)
     
-    risk_scores = (
-        0.10 + np.where(df['is_pending'] == 1, 0.35, 0) +
-        np.where(df['is_partial'] == 1, 0.20, 0) +
-        np.clip(df['bill_age_days'], 0, 120) / 300 +
-        np.clip(df['net_amount'], 0, 5000) / 20000
-    ).clip(0, 0.95)
+    # Prepare features for model
+    features = ['net_amount', 'is_pending', 'is_overdue', 'amount_band']
+    X = df[features].fillna(0)
+    
+    # Scale features
+    if HAS_SKLEARN:
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+    
+    # Train Random Forest model
+    model = RandomForestClassifier(n_estimators=50, random_state=42, max_depth=5) if HAS_SKLEARN else None
+    try:
+        # Generate synthetic labels for training
+        y_synthetic = ((df['is_pending'] == 1) & (df['net_amount'] > df['net_amount'].median())).astype(int)
+        if model is None:
+            raise RuntimeError('sklearn unavailable')
+        model.fit(X_scaled, y_synthetic)
+        risk_scores = model.predict_proba(X_scaled)[:, 1]
+    except Exception as e:
+        # Fallback to heuristic
+        risk_scores = (
+            0.08
+            + np.where(df['is_pending'] == 1, 0.35, 0)
+            + np.where(df['is_overdue'] == 1, 0.25, 0)
+            + np.clip(df['amount_band'], 0, 3) * 0.10
+        ).clip(0, 0.95)
     
     df['risk_score'] = np.clip(risk_scores, 0, 0.95)
     df['risk_label'] = df['risk_score'].apply(_risk_label)
@@ -243,37 +369,16 @@ def _build_billing_risk_scores(bills):
         'Low': 'Standard billing follow-up.',
     })
     
-    df = df.rename(columns={'id': 'bill_id'})
     df['score_date'] = datetime.now().date()
+    df['created_at'] = datetime.utcnow()
     
-    return df[['bill_id', 'score_date', 'risk_score', 'risk_label', 'recommendation']]
+    return df[['bill_id', 'score_date', 'risk_score', 'risk_label', 'recommendation', 'created_at']]
 
 
-def _upsert(connection, dataframe, table_name, key_columns, update_columns):
+def _insert_rows(connection, dataframe, table_name, columns):
     if dataframe.empty:
         return
 
-    columns = key_columns + update_columns
-    rows = dataframe[columns].to_dict(orient='records')
-
-    insert_cols = ', '.join(columns)
-    values_cols = ', '.join(f':{col}' for col in columns)
-    conflict_target = ', '.join(key_columns)
-    update_clause = ', '.join(f'{col} = EXCLUDED.{col}' for col in update_columns)
-
-    statement = text(
-        f'INSERT INTO {table_name} ({insert_cols}) VALUES ({values_cols}) '
-        f'ON CONFLICT ({conflict_target}) DO UPDATE SET {update_clause}'
-    )
-    connection.execute(statement, rows)
-
-
-def _replace_table(connection, dataframe, table_name):
-    connection.execute(text(f'DELETE FROM {table_name}'))
-    if dataframe.empty:
-        return
-
-    columns = list(dataframe.columns)
     rows = dataframe[columns].to_dict(orient='records')
     insert_cols = ', '.join(columns)
     values_cols = ', '.join(f':{col}' for col in columns)

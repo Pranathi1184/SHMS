@@ -6,8 +6,8 @@ export const wardManagementService = {
     const response = await api.post('/ward-management/wards', data);
     return response.data;
   },
-  getWards: async () => {
-    const response = await api.get('/ward-management/wards');
+  getWards: async (params = {}) => {
+    const response = await api.get('/ward-management/wards', { params });
     return response.data;
   },
   getWardById: async (id) => {
@@ -28,8 +28,8 @@ export const wardManagementService = {
     const response = await api.post('/ward-management/beds', data);
     return response.data;
   },
-  getBeds: async () => {
-    const response = await api.get('/ward-management/beds');
+  getBeds: async (params = {}) => {
+    const response = await api.get('/ward-management/beds', { params });
     return response.data;
   },
   getBedById: async (id) => {

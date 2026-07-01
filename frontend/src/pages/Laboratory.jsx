@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
+  Autocomplete,
   Box,
   Paper,
   Typography,
@@ -28,8 +29,10 @@ import {
   Visibility,
 } from '@mui/icons-material';
 import { laboratoryTestService } from '../services/laboratoryTestService';
+import { doctorService } from '../services/doctorService';
+import { patientService } from '../services/patientService';
 import { readableId } from '../utils/formatters';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
 
 const Laboratory = () => {
@@ -43,6 +46,8 @@ const Laboratory = () => {
   const [selectedTest, setSelectedTest] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [testToDelete, setTestToDelete] = useState(null);
+  const [patientOptions, setPatientOptions] = useState([]);
+  const [doctorOptions, setDoctorOptions] = useState([]);
   const { user } = useAuth();
   const isAdmin = user?.role === 'Administrator';
   const isDoctor = user?.role === 'Doctor';
@@ -50,6 +55,7 @@ const Laboratory = () => {
   const canCreate = isAdmin || isDoctor;
   const canEditResult = isAdmin || isLabTech;
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -58,7 +64,23 @@ const Laboratory = () => {
 
   useEffect(() => {
     fetchTests();
+    loadReferenceData();
   }, []);
+
+  const loadReferenceData = async () => {
+    try {
+      const [patientsResponse, doctorsResponse] = await Promise.all([
+        patientService.getAllPatients({ page: 1, limit: 200 }),
+        doctorService.getDoctors({ page: 1, limit: 100 }),
+      ]);
+
+      setPatientOptions(patientsResponse?.data?.patients || []);
+      setDoctorOptions(doctorsResponse?.data?.doctors || []);
+    } catch (err) {
+      setPatientOptions([]);
+      setDoctorOptions([]);
+    }
+  };
 
   const fetchTests = async () => {
     try {
@@ -81,8 +103,21 @@ const Laboratory = () => {
 
   const handleOpenEditDialog = (test) => {
     setEditingTest(test);
-    reset(test);
+    reset({
+      patientId: test.patientId || '',
+      doctorId: test.doctorId || '',
+      testName: test.testName || '',
+      results: test.results || '',
+      status: test.status || 'Ordered',
+    });
     setDialogOpen(true);
+  };
+
+  const patientLabel = (patient) => (patient ? `${patient.firstName || ''} ${patient.lastName || ''}`.trim() : '');
+  const doctorLabel = (doctor) => {
+    if (!doctor) return '';
+    const name = `${doctor.user?.firstName || ''} ${doctor.user?.lastName || ''}`.trim();
+    return `${name} | ${doctor.specialization || 'General'} | ${doctor.department?.name || 'No department'}`;
   };
 
   const handleSubmitTest = async (data) => {
@@ -245,25 +280,55 @@ const Laboratory = () => {
         </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSubmit(handleSubmitTest)} sx={{ mt: 2 }}>
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Patient ID"
-              placeholder="Patient UUID"
-              disabled={!!editingTest}
-              {...register('patientId', { required: 'Patient ID is required' })}
-              error={!!errors.patientId}
-              helperText={errors.patientId?.message}
+            <Controller
+              name="patientId"
+              control={control}
+              rules={{ required: 'Patient is required' }}
+              render={({ field }) => (
+                <Autocomplete
+                  options={patientOptions}
+                  disabled={!!editingTest}
+                  getOptionLabel={patientLabel}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  value={patientOptions.find((patient) => patient.id === field.value) || null}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Patient"
+                      error={!!errors.patientId}
+                      helperText={errors.patientId?.message}
+                    />
+                  )}
+                />
+              )}
             />
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Doctor ID"
-              placeholder="Doctor UUID"
-              disabled={!!editingTest}
-              {...register('doctorId', { required: 'Doctor ID is required' })}
-              error={!!errors.doctorId}
-              helperText={errors.doctorId?.message}
+            <Controller
+              name="doctorId"
+              control={control}
+              rules={{ required: 'Doctor is required' }}
+              render={({ field }) => (
+                <Autocomplete
+                  options={doctorOptions}
+                  disabled={!!editingTest}
+                  getOptionLabel={doctorLabel}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  value={doctorOptions.find((doctor) => doctor.id === field.value) || null}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Doctor"
+                      error={!!errors.doctorId}
+                      helperText={errors.doctorId?.message}
+                    />
+                  )}
+                />
+              )}
             />
             <TextField
               margin="normal"

@@ -14,6 +14,8 @@ import {
 } from '@mui/material';
 import { aiService } from '../services/aiService';
 import { agentService } from '../services/agentService';
+import { doctorService } from '../services/doctorService';
+import { patientService } from '../services/patientService';
 import { useAuth } from '../contexts/AuthContext';
 
 const canRun = (role, key) => {
@@ -24,6 +26,10 @@ const canRun = (role, key) => {
     billing: ['Administrator', 'Billing Staff'],
   };
   return map[key]?.includes(role);
+};
+
+const canViewAgentMeta = (role) => {
+  return ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Pharmacist', 'Billing Staff'].includes(role);
 };
 
 const AICenter = () => {
@@ -43,8 +49,18 @@ const AICenter = () => {
 
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleDoctorId, setScheduleDoctorId] = useState('');
+  const [scheduleContext, setScheduleContext] = useState('');
   const [history, setHistory] = useState([]);
   const [schedules, setSchedules] = useState(null);
+  const [doctors, setDoctors] = useState([]);
+  const [patientSelfId, setPatientSelfId] = useState('');
+  const [followUpContext, setFollowUpContext] = useState('');
+  const [inventoryContext, setInventoryContext] = useState('');
+  const [billingContext, setBillingContext] = useState('');
+
+  const canViewPatientSummary = ['Administrator', 'Doctor', 'Patient'].includes(role);
+  const canGenerateMedicalReport = ['Administrator', 'Doctor'].includes(role);
+  const canGenerateReminder = ['Administrator', 'Receptionist', 'Doctor', 'Patient'].includes(role);
 
   const roleHints = useMemo(() => {
     if (role === 'Patient') return 'You can use chatbot and scheduling suggestions. Agent triggers are role-restricted.';
@@ -73,6 +89,12 @@ const AICenter = () => {
   };
 
   const refreshAgentMeta = async () => {
+    if (!canViewAgentMeta(role)) {
+      setHistory([]);
+      setSchedules(null);
+      return;
+    }
+
     try {
       const [h, s] = await Promise.all([agentService.getExecutionHistory(30), agentService.getSchedules()]);
       setHistory(h?.data?.executions || []);
@@ -84,48 +106,79 @@ const AICenter = () => {
 
   useEffect(() => {
     refreshAgentMeta();
+    const loadSupportingData = async () => {
+      try {
+        if (canRun(role, 'scheduling')) {
+          const doctorRes = await doctorService.getDoctors({ limit: 200 });
+          setDoctors(doctorRes?.data?.doctors || []);
+        }
+
+        if (role === 'Patient') {
+          const profile = await patientService.getMyProfile();
+          setPatientSelfId(profile?.data?.id || '');
+        }
+      } catch {
+        // Non-blocking for AI center usage.
+      }
+    };
+    loadSupportingData();
   }, []);
 
   const renderGenAITab = () => (
     <Stack spacing={2}>
       <Typography color="text.secondary">{roleHints}</Typography>
 
-      <Paper sx={{ p: 2 }}>
-        <Typography fontWeight="bold" mb={1}>Patient Summary</Typography>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-          <TextField label="Patient ID" fullWidth value={patientId} onChange={(e) => setPatientId(e.target.value)} />
-          <Button variant="contained" onClick={() => runAction(async () => {
-            const res = await aiService.getPatientSummary(patientId);
-            return res?.data?.summary || res;
-          }, 'Patient summary generated')} disabled={!patientId || loading}>Generate</Button>
-        </Stack>
-      </Paper>
+      {canViewPatientSummary && (
+        <Paper sx={{ p: 2 }}>
+          <Typography fontWeight="bold" mb={1}>Patient Summary</Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+            {role !== 'Patient' && (
+              <TextField label="Patient ID" fullWidth value={patientId} onChange={(e) => setPatientId(e.target.value)} />
+            )}
+            <Button variant="contained" onClick={() => runAction(async () => {
+              const targetPatientId = role === 'Patient' ? (patientSelfId || 'me') : patientId;
+              const res = await aiService.getPatientSummary(targetPatientId);
+              return res?.data?.summary || res;
+            }, 'Patient summary generated')} disabled={(role !== 'Patient' && !patientId) || loading}>Generate</Button>
+          </Stack>
+        </Paper>
+      )}
 
-      <Paper sx={{ p: 2 }}>
-        <Typography fontWeight="bold" mb={1}>Medical Report</Typography>
-        <TextField label="Doctor Notes" multiline minRows={3} fullWidth value={doctorNotes} onChange={(e) => setDoctorNotes(e.target.value)} />
-        <Button sx={{ mt: 1 }} variant="contained" onClick={() => runAction(async () => {
-          const res = await aiService.getMedicalReport({ doctorNotes });
-          return res?.data?.report || res;
-        }, 'Medical report generated')} disabled={!doctorNotes || loading}>Generate</Button>
-      </Paper>
+      {canGenerateMedicalReport && (
+        <Paper sx={{ p: 2 }}>
+          <Typography fontWeight="bold" mb={1}>Medical Report</Typography>
+          <TextField label="Doctor Notes" multiline minRows={3} fullWidth value={doctorNotes} onChange={(e) => setDoctorNotes(e.target.value)} />
+          <Button sx={{ mt: 1 }} variant="contained" onClick={() => runAction(async () => {
+            const res = await aiService.getMedicalReport({ doctorNotes });
+            return res?.data?.report || res;
+          }, 'Medical report generated')} disabled={!doctorNotes || loading}>Generate</Button>
+        </Paper>
+      )}
 
-      <Paper sx={{ p: 2 }}>
-        <Typography fontWeight="bold" mb={1}>Appointment Reminder</Typography>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-          <TextField label="Appointment ID" fullWidth value={appointmentId} onChange={(e) => setAppointmentId(e.target.value)} />
-          <Button variant="contained" onClick={() => runAction(async () => {
-            const res = await aiService.getReminderMessage(appointmentId);
-            return res?.data?.message || res;
-          }, 'Reminder generated')} disabled={!appointmentId || loading}>Generate</Button>
-        </Stack>
-      </Paper>
+      {canGenerateReminder && (
+        <Paper sx={{ p: 2 }}>
+          <Typography fontWeight="bold" mb={1}>Appointment Reminder</Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+            <TextField label="Appointment ID" fullWidth value={appointmentId} onChange={(e) => setAppointmentId(e.target.value)} />
+            <Button variant="contained" onClick={() => runAction(async () => {
+              const res = await aiService.getReminderMessage(appointmentId);
+              return res?.data?.message || res;
+            }, 'Reminder generated')} disabled={!appointmentId || loading}>Generate</Button>
+          </Stack>
+        </Paper>
+      )}
 
       <Paper sx={{ p: 2 }}>
         <Typography fontWeight="bold" mb={1}>Chatbot</Typography>
         <TextField label="Query" fullWidth value={chatQuery} onChange={(e) => setChatQuery(e.target.value)} />
         <Button sx={{ mt: 1 }} variant="contained" onClick={() => runAction(async () => {
-          const res = await aiService.handleChatbotQuery(chatQuery);
+          const res = await aiService.handleChatbotQuery(chatQuery, undefined, user ? {
+            role: user.role,
+            userId: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+          } : {});
           return res?.data?.response || res;
         }, 'Chatbot response received')} disabled={!chatQuery || loading}>Ask</Button>
       </Paper>
@@ -136,60 +189,129 @@ const AICenter = () => {
     <Stack spacing={2}>
       <Paper sx={{ p: 2 }}>
         <Typography fontWeight="bold" mb={1}>Manual Agent Triggers</Typography>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-          <TextField type="date" label="Schedule Date" slotProps={{ inputLabel: { shrink: true } }} value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
-          <TextField label="Doctor ID (optional)" value={scheduleDoctorId} onChange={(e) => setScheduleDoctorId(e.target.value)} />
-          <Button variant="contained" disabled={!canRun(role, 'scheduling') || loading} onClick={() => runAction(async () => {
-            const res = await agentService.getSchedulingSuggestions({ date: scheduleDate || undefined, doctorId: scheduleDoctorId || undefined });
-            await refreshAgentMeta();
-            return res?.data?.suggestions || res?.data || res;
-          }, 'Scheduling agent executed')}>Run Scheduling</Button>
-        </Stack>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
-          <Button variant="contained" disabled={!canRun(role, 'followUp') || loading} onClick={() => runAction(async () => {
-            const res = await agentService.triggerFollowUpAgent();
-            await refreshAgentMeta();
-            return res?.data?.followUpMessages || res?.data || res;
-          }, 'Follow-up agent executed')}>Run Follow-up</Button>
-          <Button variant="contained" disabled={!canRun(role, 'inventory') || loading} onClick={() => runAction(async () => {
-            const res = await agentService.triggerInventoryAgent();
-            await refreshAgentMeta();
-            return res?.data?.recommendations || res?.data || res;
-          }, 'Inventory agent executed')}>Run Inventory</Button>
-          <Button variant="contained" disabled={!canRun(role, 'billing') || loading} onClick={() => runAction(async () => {
-            const res = await agentService.triggerBillingAgent();
-            await refreshAgentMeta();
-            return res?.data?.billingInsights || res?.data || res;
-          }, 'Billing agent executed')}>Run Billing</Button>
-        </Stack>
-      </Paper>
+        {canRun(role, 'scheduling') && (
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+            <TextField type="date" label="Schedule Date" slotProps={{ inputLabel: { shrink: true } }} value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+            <TextField
+              select
+              label="Doctor (optional)"
+              value={scheduleDoctorId}
+              onChange={(e) => setScheduleDoctorId(e.target.value)}
+              sx={{ minWidth: 280 }}
+            >
+              <MenuItem value="">Any doctor</MenuItem>
+              {doctors.map((doctor) => (
+                <MenuItem key={doctor.id} value={doctor.id}>
+                  {`${doctor.user?.firstName || ''} ${doctor.user?.lastName || ''}`.trim()} {doctor.licenseNumber ? `(${doctor.licenseNumber})` : ''}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Scheduling details"
+              placeholder="Optional clinic note or preference"
+              fullWidth
+              value={scheduleContext}
+              onChange={(e) => setScheduleContext(e.target.value)}
+            />
+            <Button variant="contained" disabled={!scheduleDate || loading} onClick={() => runAction(async () => {
+              const res = await agentService.getSchedulingSuggestions({ date: scheduleDate || undefined, doctorId: scheduleDoctorId || undefined, context: scheduleContext.trim() || undefined });
+              await refreshAgentMeta();
+              return res?.data?.suggestions || res?.data || res;
+            }, 'Scheduling agent executed')}>Run Scheduling</Button>
+          </Stack>
+        )}
 
-      <Paper sx={{ p: 2 }}>
-        <Typography fontWeight="bold" mb={1}>Scheduled Jobs</Typography>
-        {!schedules ? <Typography color="text.secondary">No schedule metadata available.</Typography> : (
-          <Stack spacing={0.5}>
-            <Typography>Enabled: {String(schedules.enabled)}</Typography>
-            <Typography>Follow-up: {schedules.schedules?.followUp}</Typography>
-            <Typography>Inventory: {schedules.schedules?.inventory}</Typography>
-            <Typography>Billing: {schedules.schedules?.billing}</Typography>
-            <Typography>Appointment reminders: {schedules.schedules?.appointmentReminders}</Typography>
+        {canRun(role, 'followUp') && (
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
+            <TextField
+              label="Follow-up details"
+              placeholder="Example: focus on yesterday discharges with diabetes"
+              fullWidth
+              value={followUpContext}
+              onChange={(e) => setFollowUpContext(e.target.value)}
+            />
+            <Button variant="contained" disabled={!followUpContext.trim() || loading} onClick={() => runAction(async () => {
+              const res = await agentService.triggerFollowUpAgent({ context: followUpContext.trim() });
+              await refreshAgentMeta();
+              return {
+                requestedContext: followUpContext,
+                result: res?.data?.followUpMessages || res?.data || res,
+              };
+            }, 'Follow-up agent executed')}>Run Follow-up</Button>
+          </Stack>
+        )}
+
+        {canRun(role, 'inventory') && (
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
+            <TextField
+              label="Inventory focus details"
+              placeholder="Example: prioritize ICU medicines and reorder horizon 14 days"
+              fullWidth
+              value={inventoryContext}
+              onChange={(e) => setInventoryContext(e.target.value)}
+            />
+            <Button variant="contained" disabled={!inventoryContext.trim() || loading} onClick={() => runAction(async () => {
+              const res = await agentService.triggerInventoryAgent({ context: inventoryContext.trim() });
+              await refreshAgentMeta();
+              return {
+                requestedContext: inventoryContext,
+                result: res?.data?.recommendations || res?.data || res,
+              };
+            }, 'Inventory agent executed')}>Run Inventory</Button>
+          </Stack>
+        )}
+
+        {canRun(role, 'billing') && (
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
+            <TextField
+              label="Billing focus details"
+              placeholder="Example: target high-value pending bills over 30 days"
+              fullWidth
+              value={billingContext}
+              onChange={(e) => setBillingContext(e.target.value)}
+            />
+            <Button variant="contained" disabled={!billingContext.trim() || loading} onClick={() => runAction(async () => {
+              const res = await agentService.triggerBillingAgent({ context: billingContext.trim() });
+              await refreshAgentMeta();
+              return {
+                requestedContext: billingContext,
+                result: res?.data?.billingInsights || res?.data || res,
+              };
+            }, 'Billing agent executed')}>Run Billing</Button>
           </Stack>
         )}
       </Paper>
 
-      <Paper sx={{ p: 2 }}>
-        <Typography fontWeight="bold" mb={1}>Execution History</Typography>
-        {history.length === 0 ? <Typography color="text.secondary">No agent runs logged yet.</Typography> : (
-          <Stack spacing={1}>
-            {history.map((item) => (
-              <Paper key={item.id} variant="outlined" sx={{ p: 1 }}>
-                <Typography fontWeight="bold">{item.entityId}</Typography>
-                <Typography variant="body2" color="text.secondary">{item.action} | {new Date(item.createdAt).toLocaleString()} | {item.actor ? `${item.actor.firstName || ''} ${item.actor.lastName || ''}`.trim() : 'System'}</Typography>
-              </Paper>
-            ))}
-          </Stack>
-        )}
-      </Paper>
+      {canViewAgentMeta(role) && (
+        <>
+          <Paper sx={{ p: 2 }}>
+            <Typography fontWeight="bold" mb={1}>Scheduled Jobs</Typography>
+            {!schedules ? <Typography color="text.secondary">No schedule metadata available.</Typography> : (
+              <Stack spacing={0.5}>
+                <Typography>Enabled: {String(schedules.enabled)}</Typography>
+                <Typography>Follow-up: {schedules.schedules?.followUp}</Typography>
+                <Typography>Inventory: {schedules.schedules?.inventory}</Typography>
+                <Typography>Billing: {schedules.schedules?.billing}</Typography>
+                <Typography>Appointment reminders: {schedules.schedules?.appointmentReminders}</Typography>
+              </Stack>
+            )}
+          </Paper>
+
+          <Paper sx={{ p: 2 }}>
+            <Typography fontWeight="bold" mb={1}>Execution History</Typography>
+            {history.length === 0 ? <Typography color="text.secondary">No agent runs logged yet.</Typography> : (
+              <Stack spacing={1}>
+                {history.map((item) => (
+                  <Paper key={item.id} variant="outlined" sx={{ p: 1 }}>
+                    <Typography fontWeight="bold">{item.entityId}</Typography>
+                    <Typography variant="body2" color="text.secondary">{item.action} | {new Date(item.createdAt).toLocaleString()} | {item.actor ? `${item.actor.firstName || ''} ${item.actor.lastName || ''}`.trim() : 'System'}</Typography>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+          </Paper>
+        </>
+      )}
     </Stack>
   );
 

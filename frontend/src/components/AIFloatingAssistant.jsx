@@ -18,7 +18,7 @@ import { agentService } from '../services/agentService';
 import { useAuth } from '../contexts/AuthContext';
 
 const roleSets = {
-  scheduling: ['Administrator', 'Receptionist', 'Doctor'],
+  scheduling: ['Administrator', 'Receptionist', 'Doctor', 'Nurse', 'Lab Technician', 'Pharmacist', 'Billing Staff', 'Patient'],
   followUp: ['Administrator', 'Nurse', 'Doctor'],
   inventory: ['Administrator', 'Pharmacist'],
   billing: ['Administrator', 'Billing Staff'],
@@ -36,10 +36,12 @@ const asText = (value) => {
 const parseScheduleCommand = (message) => {
   const dateMatch = message.match(/\b\d{4}-\d{2}-\d{2}\b/);
   const uuidMatch = message.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+  const licenseMatch = message.match(/\bDOC-[A-Z0-9-]{3,}\b/i);
 
   return {
     date: dateMatch?.[0],
-    doctorId: uuidMatch?.[0],
+    doctorId: uuidMatch?.[0] || licenseMatch?.[0],
+    context: message.replace(dateMatch?.[0] || '', '').replace(uuidMatch?.[0] || licenseMatch?.[0] || '', '').trim(),
   };
 };
 
@@ -96,24 +98,36 @@ const AIFloatingAssistant = () => {
     const message = rawMessage.toLowerCase();
 
     if ((message.includes('schedule') || message.includes('slot')) && canUse(role, 'scheduling')) {
-      const { date, doctorId } = parseScheduleCommand(rawMessage);
-      const response = await agentService.getSchedulingSuggestions({ date, doctorId });
+      const { date, doctorId, context } = parseScheduleCommand(rawMessage);
+      if (!date) {
+        return 'Please provide a schedule date in YYYY-MM-DD format before I run scheduling. Example: Run scheduling for 2026-07-02.';
+      }
+      const response = await agentService.getSchedulingSuggestions({ date, doctorId, context: context || undefined });
       const data = response?.data || {};
       return asText(data.suggestions || data);
     }
 
     if ((message.includes('follow up') || message.includes('follow-up')) && canUse(role, 'followUp')) {
-      const response = await agentService.triggerFollowUpAgent();
+      if (rawMessage.trim().split(/\s+/).length < 4) {
+        return 'Please add follow-up details first. Example: Run follow up agent for discharged cardiac patients from yesterday.';
+      }
+      const response = await agentService.triggerFollowUpAgent({ context: rawMessage.trim() });
       return asText(response?.data?.followUpMessages || response?.data || response);
     }
 
     if ((message.includes('inventory') || message.includes('stock')) && canUse(role, 'inventory')) {
-      const response = await agentService.triggerInventoryAgent();
+      if (rawMessage.trim().split(/\s+/).length < 4) {
+        return 'Please add inventory focus details first. Example: Run inventory check for ICU medicines and low stock risk.';
+      }
+      const response = await agentService.triggerInventoryAgent({ context: rawMessage.trim() });
       return asText(response?.data?.recommendations || response?.data || response);
     }
 
     if ((message.includes('billing') || message.includes('pending bill') || message.includes('dues')) && canUse(role, 'billing')) {
-      const response = await agentService.triggerBillingAgent();
+      if (rawMessage.trim().split(/\s+/).length < 4) {
+        return 'Please add billing scope details first. Example: Run billing insights for pending bills older than 30 days.';
+      }
+      const response = await agentService.triggerBillingAgent({ context: rawMessage.trim() });
       return asText(response?.data?.billingInsights || response?.data || response);
     }
 

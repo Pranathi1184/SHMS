@@ -128,6 +128,33 @@ const loadBookedSlots = async (doctorId, dateValue, excludeAppointmentId = null)
   }));
 };
 
+const patientHasOverlappingAppointment = async ({ patientId, appointmentDate, startTime, endTime, excludeAppointmentId = null }) => {
+  const { start, end } = getDateRange(appointmentDate);
+  const where = {
+    patientId,
+    appointmentDate: {
+      [Op.gte]: start,
+      [Op.lt]: end,
+    },
+    status: {
+      [Op.ne]: 'Cancelled',
+    },
+  };
+
+  if (excludeAppointmentId) {
+    where.id = { [Op.ne]: excludeAppointmentId };
+  }
+
+  const appointments = await db.Appointment.findAll({
+    where,
+    attributes: ['id', 'startTime', 'endTime'],
+  });
+
+  const requestedStart = toMinutes(startTime);
+  const requestedEnd = toMinutes(endTime);
+  return appointments.some((apt) => slotsOverlap(requestedStart, requestedEnd, toMinutes(normalizeTime(apt.startTime)), toMinutes(normalizeTime(apt.endTime))));
+};
+
 const generateSuggestionsForDate = (dateValue, schedule, bookedSlots, durationMinutes, maxSuggestions = 3) => {
   const suggestions = [];
   const day = new Date(dateValue).getDay();
@@ -664,6 +691,20 @@ const createAppointment = async (req, res) => {
       return slotsOverlap(start, end, toMinutes(slot.startTime), toMinutes(slot.endTime));
     });
 
+    const patientOverlap = await patientHasOverlappingAppointment({
+      patientId: effectivePatientId,
+      appointmentDate,
+      startTime,
+      endTime,
+    });
+
+    if (patientOverlap) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Patient already has an overlapping appointment at this time',
+      });
+    }
+
     if (overlap) {
       const suggestedSlots = await findNextSuggestedSlots(doctor, appointmentDate, end - start, 3);
       const waitlistEntry = await ensureWaitlistEntry({
@@ -873,6 +914,21 @@ const updateAppointment = async (req, res) => {
       const overlap = bookedSlots.some((slot) => {
         return slotsOverlap(toMinutes(checkStart), toMinutes(checkEnd), toMinutes(slot.startTime), toMinutes(slot.endTime));
       });
+
+      const patientOverlap = await patientHasOverlappingAppointment({
+        patientId: appointment.patientId,
+        appointmentDate: checkDate,
+        startTime: checkStart,
+        endTime: checkEnd,
+        excludeAppointmentId: id,
+      });
+
+      if (patientOverlap) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Patient already has an overlapping appointment at this time',
+        });
+      }
 
       if (overlap) {
         const suggestedSlots = await findNextSuggestedSlots(doctor, checkDate, toMinutes(checkEnd) - toMinutes(checkStart), 3);

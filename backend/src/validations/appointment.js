@@ -1,16 +1,37 @@
 const { body, query, validationResult } = require('express-validator');
 
+const ensureValidTimeRange = (startField, endField, source = 'body') => (req, res, next) => {
+  const start = source === 'query' ? req.query[startField] : req.body[startField];
+  const end = source === 'query' ? req.query[endField] : req.body[endField];
+
+  if (!start || !end) {
+    return next();
+  }
+
+  if (String(end) <= String(start)) {
+    return res.status(400).json({
+      status: 'error',
+      errors: [{ msg: `${endField} must be later than ${startField}` }],
+    });
+  }
+
+  return next();
+};
+
 const validateCreateAppointment = [
   body('patientId').custom((value, { req }) => {
     if (req.user?.role === 'Patient') return true;
     if (!value) throw new Error('Patient ID is required');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
+    if (!isUuid) throw new Error('Patient ID must be a valid UUID');
     return true;
   }),
-  body('doctorId').notEmpty().withMessage('Doctor ID is required'),
+  body('doctorId').notEmpty().withMessage('Doctor ID is required').isUUID().withMessage('Doctor ID must be a valid UUID'),
   body('appointmentDate').isDate().withMessage('Valid appointment date is required'),
   body('startTime').isTime().withMessage('Valid start time is required'),
   body('endTime').isTime().withMessage('Valid end time is required'),
   body('notes').optional().trim(),
+  ensureValidTimeRange('startTime', 'endTime', 'body'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -26,6 +47,7 @@ const validateUpdateAppointment = [
   body('endTime').optional().isTime().withMessage('Valid end time is required'),
   body('status').optional().isIn(['Scheduled', 'Completed', 'Cancelled', 'Rescheduled']).withMessage('Invalid appointment status'),
   body('notes').optional().trim(),
+  ensureValidTimeRange('startTime', 'endTime', 'body'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -36,10 +58,11 @@ const validateUpdateAppointment = [
 ];
 
 const validateCheckAvailability = [
-  query('doctorId').notEmpty().withMessage('Doctor ID is required'),
+  query('doctorId').notEmpty().withMessage('Doctor ID is required').isUUID().withMessage('Doctor ID must be a valid UUID'),
   query('date').isDate().withMessage('Valid date is required'),
   query('startTime').optional().isTime().withMessage('Valid start time is required'),
   query('endTime').optional().isTime().withMessage('Valid end time is required'),
+  ensureValidTimeRange('startTime', 'endTime', 'query'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -53,6 +76,7 @@ const validateGetAvailableDoctors = [
   query('date').isDate().withMessage('Valid date is required'),
   query('startTime').isTime().withMessage('Valid start time is required'),
   query('endTime').isTime().withMessage('Valid end time is required'),
+  ensureValidTimeRange('startTime', 'endTime', 'query'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

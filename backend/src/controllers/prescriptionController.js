@@ -2,6 +2,8 @@ const logger = require('../utils/logger');
 const db = require('../models');
 const { logAudit } = require('../services/auditService');
 
+const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+
 const getLinkedPatientForUser = async (user) => {
   if (user?.role !== 'Patient') {
     return null;
@@ -98,7 +100,17 @@ const getPrescriptions = async (req, res) => {
 
     let whereClause = {};
     if (patientId) whereClause.patientId = patientId;
-    if (doctorId) whereClause.doctorId = doctorId;
+    if (doctorId) {
+      if (isUuid(doctorId)) {
+        whereClause.doctorId = doctorId;
+      } else {
+        const doctor = await db.Doctor.findOne({ where: { licenseNumber: doctorId } });
+        if (!doctor) {
+          return res.status(404).json({ status: 'error', message: 'Doctor not found for provided license number' });
+        }
+        whereClause.doctorId = doctor.id;
+      }
+    }
     if (status) whereClause.status = status;
 
     if (req.user.role === 'Patient') {

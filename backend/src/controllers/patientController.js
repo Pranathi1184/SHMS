@@ -287,6 +287,8 @@ const getMyProfile = async (req, res) => {
     const patient = await db.Patient.findByPk(linkedPatient.id, {
       include: [
         { model: db.Appointment, as: 'appointments', include: [{ model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] }] },
+        { model: db.EHR, as: 'ehrRecords', include: [{ model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] }] },
+        { model: db.LaboratoryTest, as: 'laboratoryTests', include: [{ model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] }] },
         { model: db.Prescription, as: 'prescriptions', include: [{ model: db.PrescriptionItem, as: 'items', include: [{ model: db.Medicine, as: 'medicine' }] }] },
         { model: db.Bill, as: 'bills', include: [{ model: db.BillItem, as: 'items' }] },
         { model: db.PatientDocument, as: 'documents', include: [{ model: db.User, as: 'uploader', attributes: ['id', 'firstName', 'lastName', 'email'] }] },

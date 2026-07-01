@@ -1,6 +1,8 @@
 const db = require('../src/models');
 
 process.env.GROQ_API_KEY = process.env.GROQ_API_KEY || 'test-groq-key';
+process.env.AGENT_RETRY_ATTEMPTS = process.env.AGENT_RETRY_ATTEMPTS || '1';
+process.env.AGENT_RETRY_DELAY_MS = process.env.AGENT_RETRY_DELAY_MS || '1';
 
 jest.mock('../src/models');
 jest.mock('../src/services/notificationService', () => ({

@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
+  Autocomplete,
   Box,
   Paper,
   Typography,
@@ -38,7 +39,7 @@ import { doctorService } from '../services/doctorService';
 import { patientService } from '../services/patientService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { readableId } from '../utils/formatters';
 import TableSkeletonLoader from '../components/TableSkeletonLoader';
 import { toUserFriendlyError } from '../utils/errorMessages';
@@ -79,6 +80,7 @@ const AppointmentsList = () => {
     register,
     handleSubmit,
     watch,
+    control,
     formState: { errors },
     reset,
   } = useForm();
@@ -317,6 +319,19 @@ const AppointmentsList = () => {
     ? availableDoctorOptions
     : doctorOptions;
 
+  const patientLabel = (patient) => {
+    if (!patient) return '';
+    return `${patient.firstName || ''} ${patient.lastName || ''}`.trim();
+  };
+
+  const doctorLabel = (doctor) => {
+    if (!doctor) return '';
+    const name = `${doctor.user?.firstName || ''} ${doctor.user?.lastName || ''}`.trim();
+    const specialization = doctor.specialization || 'General';
+    const department = doctor.department?.name || 'No department';
+    return `${name} | ${specialization} | ${department}`;
+  };
+
   if (loading) {
     return (
       <Box>
@@ -528,41 +543,78 @@ const AppointmentsList = () => {
         </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSubmit(handleSubmitAppointment)} sx={{ mt: 2 }}>
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Patient"
-              select
-              defaultValue=""
-              disabled={isPatient}
-              {...register('patientId', { required: isPatient ? false : 'Patient ID is required' })}
-              error={!!errors.patientId}
-              helperText={isPatient ? 'Automatically linked from your account' : (errors.patientId?.message || 'Select patient')}
-            >
-              <MenuItem value="">Select patient</MenuItem>
-              {patientOptions.map((patient) => (
-                <MenuItem key={patient.id} value={patient.id}>
-                  {`${readableId('patient', patient.id, patient)} - ${patient.firstName || ''} ${patient.lastName || ''}`.trim()}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Doctor"
-              select
-              defaultValue=""
-              {...register('doctorId', { required: 'Doctor ID is required' })}
-              error={!!errors.doctorId}
-              helperText={errors.doctorId?.message || (checkingDoctors ? 'Filtering available doctors...' : 'Select doctor')}
-            >
-              <MenuItem value="">Select doctor</MenuItem>
-              {activeDoctorOptions.map((doctor) => (
-                <MenuItem key={doctor.id} value={doctor.id}>
-                  {`${readableId('doctor', doctor.id, doctor)} - ${(doctor.user?.firstName || '')} ${(doctor.user?.lastName || '')} (${String(doctor.doctorSchedule?.availableFrom || '09:00').slice(0, 5)}-${String(doctor.doctorSchedule?.availableTo || '17:00').slice(0, 5)})`.trim()}
-                </MenuItem>
-              ))}
-            </TextField>
+            {!isPatient && (
+              <Controller
+                name="patientId"
+                control={control}
+                rules={{ required: 'Patient is required' }}
+                render={({ field }) => (
+                  <Autocomplete
+                    options={patientOptions}
+                    getOptionLabel={patientLabel}
+                    value={patientOptions.find((patient) => patient.id === field.value) || null}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    onChange={(_, value) => field.onChange(value?.id || '')}
+                    renderOption={(props, option) => (
+                      <li {...props}>
+                        {`${patientLabel(option)} (${readableId('patient', option.id, option)})`}
+                      </li>
+                    )}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        margin="normal"
+                        fullWidth
+                        label="Patient"
+                        error={!!errors.patientId}
+                        helperText={errors.patientId?.message || 'Search by patient name'}
+                      />
+                    )}
+                  />
+                )}
+              />
+            )}
+
+            {isPatient && (
+              <TextField
+                margin="normal"
+                fullWidth
+                label="Patient"
+                value="Automatically linked from your account"
+                disabled
+              />
+            )}
+
+            <Controller
+              name="doctorId"
+              control={control}
+              rules={{ required: 'Doctor is required' }}
+              render={({ field }) => (
+                <Autocomplete
+                  options={activeDoctorOptions}
+                  getOptionLabel={doctorLabel}
+                  value={activeDoctorOptions.find((doctor) => doctor.id === field.value) || null}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  loading={checkingDoctors}
+                  renderOption={(props, option) => (
+                    <li {...props}>
+                      {doctorLabel(option)}
+                    </li>
+                  )}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Doctor"
+                      error={!!errors.doctorId}
+                      helperText={errors.doctorId?.message || (checkingDoctors ? 'Filtering available doctors...' : 'Search by doctor, specialization or department')}
+                    />
+                  )}
+                />
+              )}
+            />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.5 }}>
               <FormControlLabel
                 control={<Switch size="small" checked={onlyAvailableDoctors} onChange={(e) => setOnlyAvailableDoctors(e.target.checked)} />}

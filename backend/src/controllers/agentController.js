@@ -41,7 +41,7 @@ const logAgentRun = async ({ req, agentName, triggerType, status, result, error 
 
 const getSchedulingSuggestions = async (req, res) => {
   try {
-    let { doctorId } = req.query;
+    let { doctorId, context } = req.query;
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
     if (req.user.role === 'Doctor') {
@@ -49,9 +49,18 @@ const getSchedulingSuggestions = async (req, res) => {
       if (doctorProfile) {
         doctorId = doctorProfile.id;
       }
+    } else if (doctorId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(doctorId))) {
+      const doctorByLicense = await db.Doctor.findOne({ where: { licenseNumber: doctorId } });
+      if (!doctorByLicense) {
+        return res.status(404).json({
+          status: 'error',
+          message: 'Doctor not found for provided license number',
+        });
+      }
+      doctorId = doctorByLicense.id;
     }
 
-    const result = await agentService.runSchedulingAgent(doctorId, date, req.user);
+    const result = await agentService.runSchedulingAgent(doctorId, date, req.user, context);
     await logAgentRun({ req, agentName: 'SchedulingAgent', triggerType: 'manual', status: 'SUCCESS', result });
     res.status(200).json({ status: 'success', data: result });
   } catch (error) {
@@ -62,7 +71,7 @@ const getSchedulingSuggestions = async (req, res) => {
 
 const triggerFollowUpAgent = async (req, res) => {
   try {
-    const result = await agentService.runFollowUpAgent(req.user);
+    const result = await agentService.runFollowUpAgent(req.user, req.body?.context);
     await logAgentRun({ req, agentName: 'FollowUpAgent', triggerType: 'manual', status: 'SUCCESS', result });
     res.status(200).json({ status: 'success', data: result });
   } catch (error) {
@@ -73,7 +82,7 @@ const triggerFollowUpAgent = async (req, res) => {
 
 const triggerInventoryAgent = async (req, res) => {
   try {
-    const result = await agentService.runInventoryAgent(req.user);
+    const result = await agentService.runInventoryAgent(req.user, req.body?.context);
     await logAgentRun({ req, agentName: 'InventoryAgent', triggerType: 'manual', status: 'SUCCESS', result });
     res.status(200).json({ status: 'success', data: result });
   } catch (error) {
@@ -84,7 +93,7 @@ const triggerInventoryAgent = async (req, res) => {
 
 const triggerBillingAgent = async (req, res) => {
   try {
-    const result = await agentService.runBillingAgent(req.user);
+    const result = await agentService.runBillingAgent(req.user, req.body?.context);
     await logAgentRun({ req, agentName: 'BillingAgent', triggerType: 'manual', status: 'SUCCESS', result });
     res.status(200).json({ status: 'success', data: result });
   } catch (error) {

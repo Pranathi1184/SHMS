@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import {
+  Autocomplete,
   Box,
   Paper,
   Typography,
@@ -28,7 +29,10 @@ import {
   Visibility,
 } from '@mui/icons-material';
 import { prescriptionService } from '../services/prescriptionService';
-import { useForm } from 'react-hook-form';
+import { doctorService } from '../services/doctorService';
+import { medicineService } from '../services/medicineService';
+import { patientService } from '../services/patientService';
+import { Controller, useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
 import { readableId } from '../utils/formatters';
 
@@ -43,6 +47,9 @@ const Prescriptions = () => {
   const [selectedPrescription, setSelectedPrescription] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [prescriptionToDelete, setPrescriptionToDelete] = useState(null);
+  const [patientOptions, setPatientOptions] = useState([]);
+  const [doctorOptions, setDoctorOptions] = useState([]);
+  const [medicineOptions, setMedicineOptions] = useState([]);
   const { user } = useAuth();
   const isAdmin = user?.role === 'Administrator';
   const isDoctor = user?.role === 'Doctor';
@@ -50,6 +57,7 @@ const Prescriptions = () => {
   const canCreate = isAdmin || isDoctor;
   const canDispense = isAdmin || isPharmacist;
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -58,7 +66,26 @@ const Prescriptions = () => {
 
   useEffect(() => {
     fetchPrescriptions();
+    loadReferenceData();
   }, []);
+
+  const loadReferenceData = async () => {
+    try {
+      const [patientsResponse, doctorsResponse, medicinesResponse] = await Promise.all([
+        patientService.getAllPatients({ page: 1, limit: 200 }),
+        doctorService.getDoctors({ page: 1, limit: 100 }),
+        medicineService.getMedicines({ page: 1, limit: 200 }),
+      ]);
+
+      setPatientOptions(patientsResponse?.data?.patients || []);
+      setDoctorOptions(doctorsResponse?.data?.doctors || []);
+      setMedicineOptions(medicinesResponse?.data?.medicines || []);
+    } catch (err) {
+      setPatientOptions([]);
+      setDoctorOptions([]);
+      setMedicineOptions([]);
+    }
+  };
 
   const fetchPrescriptions = async () => {
     try {
@@ -75,7 +102,7 @@ const Prescriptions = () => {
 
   const handleOpenAddDialog = () => {
     setEditingPrescription(null);
-    reset();
+    reset({ status: 'Pending' });
     setDialogOpen(true);
   };
 
@@ -88,6 +115,18 @@ const Prescriptions = () => {
       status: prescription.status || 'Pending',
     });
     setDialogOpen(true);
+  };
+
+  const patientLabel = (patient) => (patient ? `${patient.firstName || ''} ${patient.lastName || ''}`.trim() : '');
+  const doctorLabel = (doctor) => {
+    if (!doctor) return '';
+    const name = `${doctor.user?.firstName || ''} ${doctor.user?.lastName || ''}`.trim();
+    return `${name} | ${doctor.specialization || 'General'} | ${doctor.department?.name || 'No department'}`;
+  };
+  const medicineLabel = (medicine) => {
+    if (!medicine) return '';
+    const code = medicine.medicineCode || readableId('medicine', medicine.id, medicine);
+    return `${medicine.name || 'Medicine'} | ${code}`;
   };
 
   const handleSubmitPrescription = async (data) => {
@@ -292,36 +331,81 @@ const Prescriptions = () => {
         </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSubmit(handleSubmitPrescription)} sx={{ mt: 2 }}>
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Patient ID"
-              placeholder="UUID"
-              disabled={!!editingPrescription}
-              {...register('patientId', { required: 'Patient ID is required' })}
-              error={!!errors.patientId}
-              helperText={errors.patientId?.message}
+            <Controller
+              name="patientId"
+              control={control}
+              rules={{ required: 'Patient is required' }}
+              render={({ field }) => (
+                <Autocomplete
+                  options={patientOptions}
+                  disabled={!!editingPrescription}
+                  getOptionLabel={patientLabel}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  value={patientOptions.find((patient) => patient.id === field.value) || null}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Patient"
+                      error={!!errors.patientId}
+                      helperText={errors.patientId?.message}
+                    />
+                  )}
+                />
+              )}
             />
-            <TextField
-              margin="normal"
-              fullWidth
-              label="Doctor ID"
-              placeholder="UUID"
-              disabled={!!editingPrescription}
-              {...register('doctorId', { required: 'Doctor ID is required' })}
-              error={!!errors.doctorId}
-              helperText={errors.doctorId?.message}
+            <Controller
+              name="doctorId"
+              control={control}
+              rules={{ required: 'Doctor is required' }}
+              render={({ field }) => (
+                <Autocomplete
+                  options={doctorOptions}
+                  disabled={!!editingPrescription}
+                  getOptionLabel={doctorLabel}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  value={doctorOptions.find((doctor) => doctor.id === field.value) || null}
+                  onChange={(_, value) => field.onChange(value?.id || '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      margin="normal"
+                      fullWidth
+                      label="Doctor"
+                      error={!!errors.doctorId}
+                      helperText={errors.doctorId?.message}
+                    />
+                  )}
+                />
+              )}
             />
             {!editingPrescription && (
               <>
-                <TextField
-                  margin="normal"
-                  fullWidth
-                  label="Medicine ID"
-                  placeholder="UUID"
-                  {...register('medicineId', { required: 'Medicine ID is required' })}
-                  error={!!errors.medicineId}
-                  helperText={errors.medicineId?.message}
+                <Controller
+                  name="medicineId"
+                  control={control}
+                  rules={{ required: 'Medicine is required' }}
+                  render={({ field }) => (
+                    <Autocomplete
+                      options={medicineOptions}
+                      getOptionLabel={medicineLabel}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      value={medicineOptions.find((medicine) => medicine.id === field.value) || null}
+                      onChange={(_, value) => field.onChange(value?.id || '')}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          margin="normal"
+                          fullWidth
+                          label="Medicine"
+                          error={!!errors.medicineId}
+                          helperText={errors.medicineId?.message}
+                        />
+                      )}
+                    />
+                  )}
                 />
                 <TextField
                   margin="normal"

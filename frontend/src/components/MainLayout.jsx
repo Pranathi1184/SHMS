@@ -23,6 +23,18 @@ const routeLabel = (path) => {
   return map[path] || path;
 };
 
+const routeRoleAccess = {
+  '/appointments': ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Pharmacist', 'Billing Staff', 'Patient'],
+  '/patients': ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Pharmacist', 'Billing Staff'],
+  '/billing': ['Administrator', 'Doctor', 'Nurse', 'Receptionist', 'Billing Staff'],
+};
+
+const canNavigateTo = (role, path) => {
+  if (!role) return false;
+  const allowedRoles = routeRoleAccess[path];
+  return !allowedRoles || allowedRoles.includes(role);
+};
+
 const MainLayout = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -67,17 +79,17 @@ const MainLayout = ({ children }) => {
         setPaletteOpen((prev) => !prev);
       }
 
-      if (event.altKey && key === 'b') {
+      if (event.altKey && key === 'b' && canNavigateTo(user?.role, '/appointments')) {
         event.preventDefault();
         navigate('/appointments');
       }
 
-      if (event.altKey && key === 'p') {
+      if (event.altKey && key === 'p' && canNavigateTo(user?.role, '/patients')) {
         event.preventDefault();
         navigate('/patients');
       }
 
-      if (event.altKey && key === 'c') {
+      if (event.altKey && key === 'c' && canNavigateTo(user?.role, '/billing')) {
         event.preventDefault();
         navigate('/billing');
       }
@@ -85,7 +97,7 @@ const MainLayout = ({ children }) => {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [navigate]);
+  }, [navigate, user?.role]);
 
   useEffect(() => {
     if (!user?.role) return;
