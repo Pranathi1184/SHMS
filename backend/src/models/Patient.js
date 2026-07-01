@@ -28,7 +28,6 @@ Patient.init(
     },
     email: {
       type: DataTypes.STRING(255),
-      unique: true,
       validate: {
         isEmail: true,
       },
@@ -59,7 +58,7 @@ Patient.init(
     tableName: 'patients',
     paranoid: true,
     indexes: [
-      { unique: true, fields: ['email'] },
+      { fields: ['email'] },
       { fields: ['phone'] },
       { fields: ['last_name', 'first_name'] },
     ],

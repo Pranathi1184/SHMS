@@ -1,5 +1,8 @@
+const crypto = require('crypto');
 const { verifyAccessToken } = require('../utils/jwt');
 const db = require('../models');
+
+const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -12,9 +15,10 @@ const authenticateToken = async (req, res, next) => {
   try {
     const decoded = verifyAccessToken(token);
 
-    // Check token blacklist
+    // Check token blacklist using SHA-256 hash
     if (db.TokenBlacklist) {
-      const blacklisted = await db.TokenBlacklist.findOne({ where: { token } });
+      const tokenHash = hashToken(token);
+      const blacklisted = await db.TokenBlacklist.findOne({ where: { tokenHash } });
       if (blacklisted) {
         return res.status(401).json({ status: 'error', message: 'Token has been revoked' });
       }

@@ -28,6 +28,19 @@ module.exports = {
       }
     }
 
+    // Replace unique indexes with partial unique indexes (WHERE deleted_at IS NULL)
+    // so soft-deleted records don't block re-registration
+    await queryInterface.sequelize.query(`
+      DROP INDEX IF EXISTS patients_email_unique;
+      CREATE UNIQUE INDEX patients_email_unique ON patients (email) WHERE deleted_at IS NULL;
+
+      DROP INDEX IF EXISTS bills_bill_number_unique;
+      CREATE UNIQUE INDEX bills_bill_number_unique ON bills (bill_number) WHERE deleted_at IS NULL;
+
+      DROP INDEX IF EXISTS insurance_policy_number_unique;
+      CREATE UNIQUE INDEX insurance_policy_number_unique ON insurance (policy_number) WHERE deleted_at IS NULL;
+    `).catch(() => {});
+
     // Add token_blacklist table
     await queryInterface.createTable('token_blacklist', {
       id: {
@@ -35,8 +48,8 @@ module.exports = {
         defaultValue: Sequelize.UUIDV4,
         primaryKey: true,
       },
-      token: {
-        type: Sequelize.TEXT,
+      token_hash: {
+        type: Sequelize.STRING(64),
         allowNull: false,
       },
       user_id: {
@@ -106,6 +119,18 @@ module.exports = {
     for (const table of tables) {
       await queryInterface.removeColumn(table, 'deleted_at').catch(() => {});
     }
+
+    // Restore original unique indexes
+    await queryInterface.sequelize.query(`
+      DROP INDEX IF EXISTS patients_email_unique;
+      CREATE UNIQUE INDEX patients_email_unique ON patients (email);
+
+      DROP INDEX IF EXISTS bills_bill_number_unique;
+      CREATE UNIQUE INDEX bills_bill_number_unique ON bills (bill_number);
+
+      DROP INDEX IF EXISTS insurance_policy_number_unique;
+      CREATE UNIQUE INDEX insurance_policy_number_unique ON insurance (policy_number);
+    `).catch(() => {});
 
     await queryInterface.dropTable('token_blacklist').catch(() => {});
 

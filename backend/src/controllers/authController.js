@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const db = require('../models');
 const logger = require('../utils/logger');
 const { hashPassword, comparePassword } = require('../utils/password');
@@ -74,7 +75,8 @@ const register = async (req, res) => {
     }, { transaction });
 
     if (normalizedRole === 'Patient') {
-      const existingPatient = await db.Patient.findOne({ where: { email }, transaction });
+      // Include soft-deleted records to avoid unique constraint violations
+      const existingPatient = await db.Patient.findOne({ where: { email }, paranoid: false, transaction });
       if (existingPatient) {
         await safeRollback(transaction);
         return res.status(400).json({ status: 'error', message: 'Patient with this email already exists' });
@@ -252,10 +254,11 @@ const logout = async (req, res) => {
     const token = req.token;
     const decoded = verifyAccessToken(token);
 
-    // Add token to blacklist with expiry
+    // Store SHA-256 hash of token in blacklist
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(decoded.exp * 1000);
     await db.TokenBlacklist.create({
-      token,
+      tokenHash,
       userId: req.user.id,
       expiresAt,
     });

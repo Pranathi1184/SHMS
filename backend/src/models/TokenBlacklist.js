@@ -10,8 +10,8 @@ TokenBlacklist.init(
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
     },
-    token: {
-      type: DataTypes.TEXT,
+    tokenHash: {
+      type: DataTypes.STRING(64),
       allowNull: false,
     },
     userId: {
@@ -28,7 +28,7 @@ TokenBlacklist.init(
     modelName: 'TokenBlacklist',
     tableName: 'token_blacklist',
     indexes: [
-      { fields: ['token'], using: 'HASH' },
+      { fields: ['token_hash'] },
       { fields: ['user_id'] },
       { fields: ['expires_at'] },
     ],

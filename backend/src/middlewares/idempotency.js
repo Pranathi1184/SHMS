@@ -5,7 +5,7 @@ const idempotencyStore = new Map();
 
 const STORE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// Cleanup expired entries periodically
+// Cleanup expired entries periodically (unref to not prevent process exit)
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of idempotencyStore) {
@@ -13,7 +13,7 @@ setInterval(() => {
       idempotencyStore.delete(key);
     }
   }
-}, 60 * 60 * 1000); // Every hour
+}, 60 * 60 * 1000).unref();
 
 const idempotencyCheck = (req, res, next) => {
   const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
@@ -22,7 +22,13 @@ const idempotencyCheck = (req, res, next) => {
     return next();
   }
 
-  const userId = req.user?.id || 'anonymous';
+  // req.user is set by authenticateToken middleware which runs before this
+  const userId = req.user?.id;
+  if (!userId) {
+    // Skip idempotency for unauthenticated requests to prevent cross-user leakage
+    return next();
+  }
+
   const storeKey = `${userId}:${idempotencyKey}`;
 
   const existing = idempotencyStore.get(storeKey);
