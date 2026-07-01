@@ -53,17 +53,21 @@ const createEHR = async (req, res) => {
       ],
     });
 
-    await logAudit({
-      req,
-      action: 'CREATE',
-      entityType: 'EHR',
-      entityId: ehr.id,
-      after: {
-        patientId: ehr.patientId,
-        doctorId: ehr.doctorId,
-        diagnosis: ehr.diagnosis,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'CREATE',
+        entityType: 'EHR',
+        entityId: ehr.id,
+        after: {
+          patientId: ehr.patientId,
+          doctorId: ehr.doctorId,
+          diagnosis: ehr.diagnosis,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-create EHR audit log failed', { message: auditError.message });
+    }
 
     res.status(201).json({
       status: 'success',
@@ -181,20 +185,24 @@ const updateEHR = async (req, res) => {
       ],
     });
 
-    await logAudit({
-      req,
-      action: 'UPDATE',
-      entityType: 'EHR',
-      entityId: ehr.id,
-      before: {
-        diagnosis: beforeState.diagnosis,
-        symptoms: beforeState.symptoms,
-      },
-      after: {
-        diagnosis: ehr.diagnosis,
-        symptoms: ehr.symptoms,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'UPDATE',
+        entityType: 'EHR',
+        entityId: ehr.id,
+        before: {
+          diagnosis: beforeState.diagnosis,
+          symptoms: beforeState.symptoms,
+        },
+        after: {
+          diagnosis: ehr.diagnosis,
+          symptoms: ehr.symptoms,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-update EHR audit log failed', { message: auditError.message });
+    }
 
     res.status(200).json({
       status: 'success',
@@ -219,17 +227,21 @@ const deleteEHR = async (req, res) => {
     const beforeState = ehr.toJSON();
     await ehr.destroy();
 
-    await logAudit({
-      req,
-      action: 'DELETE',
-      entityType: 'EHR',
-      entityId: id,
-      before: {
-        patientId: beforeState.patientId,
-        doctorId: beforeState.doctorId,
-        diagnosis: beforeState.diagnosis,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'DELETE',
+        entityType: 'EHR',
+        entityId: id,
+        before: {
+          patientId: beforeState.patientId,
+          doctorId: beforeState.doctorId,
+          diagnosis: beforeState.diagnosis,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-delete EHR audit log failed', { message: auditError.message });
+    }
 
     res.status(200).json({
       status: 'success',

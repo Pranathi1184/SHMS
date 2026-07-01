@@ -265,17 +265,21 @@ const deleteBill = async (req, res) => {
     const beforeState = bill.toJSON();
     await bill.destroy();
 
-    await logAudit({
-      req,
-      action: 'DELETE',
-      entityType: 'Bill',
-      entityId: id,
-      before: {
-        billNumber: beforeState.billNumber,
-        patientId: beforeState.patientId,
-        totalAmount: beforeState.totalAmount,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'DELETE',
+        entityType: 'Bill',
+        entityId: id,
+        before: {
+          billNumber: beforeState.billNumber,
+          patientId: beforeState.patientId,
+          totalAmount: beforeState.totalAmount,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-delete bill audit log failed', { message: auditError.message });
+    }
 
     res.status(200).json({
       status: 'success',

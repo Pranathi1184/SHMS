@@ -100,6 +100,9 @@ const testDbConnection = async () => {
     }
   } catch (error) {
     logger.error('Unable to connect to the database:', error);
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
   }
 };
 

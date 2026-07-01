@@ -302,68 +302,76 @@ const generateBillNumber = () => {
 };
 
 const ensureDraftBillForCompletedAppointment = async (appointmentId, actingUserId) => {
-  const existingLink = await db.AppointmentBillingLink.findOne({ where: { appointmentId } });
-  if (existingLink) {
-    return;
-  }
-
-  const appointment = await db.Appointment.findByPk(appointmentId, {
-    include: [
-      { model: db.Patient, as: 'patient' },
-      { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
-    ],
-  });
-  if (!appointment) {
-    return;
-  }
-
-  const consultationFee = Number(appointment.doctor?.consultationFee || 0);
-  const billNumber = generateBillNumber();
-  const autoNotes = `Auto-generated draft from completed appointment ${appointment.id}`;
-
-  const bill = await db.Bill.create({
-    patientId: appointment.patientId,
-    billNumber,
-    billDate: new Date(),
-    totalAmount: consultationFee,
-    discount: 0,
-    taxAmount: 0,
-    netAmount: consultationFee,
-    paymentMode: 'Other',
-    paymentStatus: 'Pending',
-    notes: autoNotes,
-    createdBy: actingUserId,
-  });
-
-  await db.BillItem.create({
-    billId: bill.id,
-    description: `Consultation fee (${appointment.doctor?.user?.firstName || 'Doctor'})`,
-    quantity: 1,
-    unitPrice: consultationFee,
-    totalPrice: consultationFee,
-  });
-
-  await db.AppointmentBillingLink.create({
-    appointmentId,
-    billId: bill.id,
-    status: 'DraftGenerated',
-    checklist: {
-      insuranceVerified: false,
-      discountsReviewed: false,
-      testsIncluded: false,
-    },
-  });
-
-  const billingUsers = await db.User.findAll({ where: { role: 'Billing Staff', isActive: true } });
-  await createNotificationsForUsers(
-    billingUsers.map((user) => user.id),
-    {
-      title: 'Draft Bill Created',
-      message: `Draft bill ${billNumber} created from completed appointment. Please review checklist.`,
-      type: 'Bill',
-      relatedId: bill.id,
+  try {
+    const existingLink = await db.AppointmentBillingLink.findOne({ where: { appointmentId } });
+    if (existingLink) {
+      return;
     }
-  );
+
+    const appointment = await db.Appointment.findByPk(appointmentId, {
+      include: [
+        { model: db.Patient, as: 'patient' },
+        { model: db.Doctor, as: 'doctor', include: [{ model: db.User, as: 'user' }] },
+      ],
+    });
+    if (!appointment) {
+      return;
+    }
+
+    const consultationFee = Number(appointment.doctor?.consultationFee || 0);
+    const billNumber = generateBillNumber();
+    const autoNotes = `Auto-generated draft from completed appointment ${appointment.id}`;
+
+    const bill = await db.Bill.create({
+      patientId: appointment.patientId,
+      billNumber,
+      billDate: new Date(),
+      totalAmount: consultationFee,
+      discount: 0,
+      taxAmount: 0,
+      netAmount: consultationFee,
+      paymentMode: 'Other',
+      paymentStatus: 'Pending',
+      notes: autoNotes,
+      createdBy: actingUserId,
+    });
+
+    await db.BillItem.create({
+      billId: bill.id,
+      description: `Consultation fee (${appointment.doctor?.user?.firstName || 'Doctor'})`,
+      quantity: 1,
+      unitPrice: consultationFee,
+      totalPrice: consultationFee,
+    });
+
+    await db.AppointmentBillingLink.create({
+      appointmentId,
+      billId: bill.id,
+      status: 'DraftGenerated',
+      checklist: {
+        insuranceVerified: false,
+        discountsReviewed: false,
+        testsIncluded: false,
+      },
+    });
+
+    const billingUsers = await db.User.findAll({ where: { role: 'Billing Staff', isActive: true } });
+    await createNotificationsForUsers(
+      billingUsers.map((user) => user.id),
+      {
+        title: 'Draft Bill Created',
+        message: `Draft bill ${billNumber} created from completed appointment. Please review checklist.`,
+        type: 'Bill',
+        relatedId: bill.id,
+      }
+    );
+  } catch (error) {
+    logger.error('Failed to create draft bill for completed appointment', {
+      appointmentId,
+      message: error.message,
+      stack: error.stack,
+    });
+  }
 };
 
 const checkAvailability = async (req, res) => {

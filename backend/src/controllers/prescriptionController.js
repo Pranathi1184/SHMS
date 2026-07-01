@@ -69,17 +69,21 @@ const createPrescription = async (req, res) => {
       ],
     });
 
-    await logAudit({
-      req,
-      action: 'CREATE',
-      entityType: 'Prescription',
-      entityId: prescription.id,
-      after: {
-        patientId: prescription.patientId,
-        doctorId: prescription.doctorId,
-        status: prescription.status,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'CREATE',
+        entityType: 'Prescription',
+        entityId: prescription.id,
+        after: {
+          patientId: prescription.patientId,
+          doctorId: prescription.doctorId,
+          status: prescription.status,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-create prescription audit log failed', { message: auditError.message });
+    }
 
     res.status(201).json({
       status: 'success',
@@ -87,7 +91,9 @@ const createPrescription = async (req, res) => {
       data: populatedPrescription,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     logger.error('Create prescription error:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
@@ -210,20 +216,24 @@ const updatePrescription = async (req, res) => {
       ],
     });
 
-    await logAudit({
-      req,
-      action: 'UPDATE',
-      entityType: 'Prescription',
-      entityId: prescription.id,
-      before: {
-        status: beforeState.status,
-        notes: beforeState.notes,
-      },
-      after: {
-        status: prescription.status,
-        notes: prescription.notes,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'UPDATE',
+        entityType: 'Prescription',
+        entityId: prescription.id,
+        before: {
+          status: beforeState.status,
+          notes: beforeState.notes,
+        },
+        after: {
+          status: prescription.status,
+          notes: prescription.notes,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-update prescription audit log failed', { message: auditError.message });
+    }
 
     res.status(200).json({
       status: 'success',
@@ -282,18 +292,22 @@ const dispensePrescription = async (req, res) => {
       ],
     });
 
-    await logAudit({
-      req,
-      action: 'DISPENSE',
-      entityType: 'Prescription',
-      entityId: prescription.id,
-      before: {
-        status: beforeState.status,
-      },
-      after: {
-        status: 'Dispensed',
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'DISPENSE',
+        entityType: 'Prescription',
+        entityId: prescription.id,
+        before: {
+          status: beforeState.status,
+        },
+        after: {
+          status: 'Dispensed',
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-dispense prescription audit log failed', { message: auditError.message });
+    }
 
     res.status(200).json({
       status: 'success',
@@ -301,7 +315,9 @@ const dispensePrescription = async (req, res) => {
       data: populatedPrescription,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
     logger.error('Dispense prescription error:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
@@ -319,17 +335,21 @@ const deletePrescription = async (req, res) => {
     const beforeState = prescription.toJSON();
     await prescription.destroy();
 
-    await logAudit({
-      req,
-      action: 'DELETE',
-      entityType: 'Prescription',
-      entityId: id,
-      before: {
-        patientId: beforeState.patientId,
-        doctorId: beforeState.doctorId,
-        status: beforeState.status,
-      },
-    });
+    try {
+      await logAudit({
+        req,
+        action: 'DELETE',
+        entityType: 'Prescription',
+        entityId: id,
+        before: {
+          patientId: beforeState.patientId,
+          doctorId: beforeState.doctorId,
+          status: beforeState.status,
+        },
+      });
+    } catch (auditError) {
+      logger.warn('Post-delete prescription audit log failed', { message: auditError.message });
+    }
 
     res.status(200).json({
       status: 'success',
